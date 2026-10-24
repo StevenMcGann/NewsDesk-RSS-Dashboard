@@ -213,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, FetchError, feeds.FeedError) as e:
             return self._json(400, {"error": str(e)})
         except Exception:
-            log.exception("%s %s failed", self.command, path)
+            log.exception("%s %s failed", method, name)  # route constants, never request text, in the log
             return self._json(500, {"error": "Something went wrong. Details are in app.log."})
         if isinstance(result, Raw):
             disposition = f'attachment; filename="{result.filename}"'
