@@ -55,7 +55,10 @@ class LocalAddressTest(unittest.TestCase):
     def test_block_local_refuses_before_any_request(self):
         f = Fetcher()
         calls = []
-        f.get_python = f.windows.get = lambda *a, **k: calls.append(a)
+        def record(*args, **kwargs):
+            calls.append(args)
+            return ok("python")
+        f.get_python = f.windows.get = f.get_winhttp = record
         try:
             with self.assertRaisesRegex(FetchError, "this computer"):
                 f.get("http://127.0.0.1:47821/", block_local=True)
@@ -123,6 +126,8 @@ class TransportTest(unittest.TestCase):
         yield "python", f.get_python
         if f.windows.available:
             yield "windows", f.windows.get
+        if f.winhttp.available:
+            yield "winhttp", f.get_winhttp
 
     def test_total_deadline_stops_a_trickling_response(self):
         srv = _serve(_Trickle)
@@ -247,6 +252,7 @@ class TransportTest(unittest.TestCase):
 class FallbackTest(unittest.TestCase):
     def setUp(self):
         self.f = Fetcher()
+        self.f.winhttp = mock.Mock(available=False)  # exercise .NET/Python when native is unavailable
         self.calls = []
 
     def tearDown(self):
@@ -266,34 +272,34 @@ class FallbackTest(unittest.TestCase):
         self.f.windows.get = make("windows", windows)
         self.f.windows._exe = "powershell.exe"
 
-    def test_network_failure_falls_back_and_sticks(self):
-        self.stub(FetchError("no route", network=True), None)
-        self.assertEqual(self.f.get("https://x.test/").via, "windows")
-        self.assertEqual(self.f.get("https://x.test/").via, "windows")
-        self.assertEqual(self.calls, ["python", "windows", "windows"])
+    def test_network_failure_remembers_python_for_that_host(self):
+        self.stub(None, FetchError("no route", network=True))
+        self.assertEqual(self.f.get("https://x.test/").via, "python")
+        self.assertEqual(self.f.get("https://x.test/").via, "python")
+        self.assertEqual(self.calls, ["windows", "python", "python"])
 
     def test_http_errors_do_not_fall_back(self):
-        self.stub(FetchError("HTTP 404", 404), None)
+        self.stub(None, FetchError("HTTP 404", 404))
         with self.assertRaises(FetchError):
             self.f.get("https://x.test/")
-        self.assertEqual(self.calls, ["python"])
+        self.assertEqual(self.calls, ["windows"])
 
-    def test_forbidden_retries_via_windows_and_remembers_only_that_site(self):
-        def python(url, name):
+    def test_forbidden_retries_via_python_and_remembers_only_that_site(self):
+        def windows(url, name):
             if "cisa" in url:
                 raise FetchError("HTTP 403: the site refused access", 403)
             return ok(name)
-        self.stub(python, None)
-        self.assertEqual(self.f.get("https://www.cisa.gov/all.xml").via, "windows")
-        self.assertEqual(self.f.get("https://www.cisa.gov/all.xml").via, "windows")
-        self.assertEqual(self.f.get("https://other.test/feed").via, "python")
-        self.assertEqual(self.calls, ["python", "windows", "windows", "python"])
+        self.stub(None, windows)
+        self.assertEqual(self.f.get("https://www.cisa.gov/all.xml").via, "python")
+        self.assertEqual(self.f.get("https://www.cisa.gov/all.xml").via, "python")
+        self.assertEqual(self.f.get("https://other.test/feed").via, "windows")
+        self.assertEqual(self.calls, ["windows", "python", "python", "windows"])
 
     def test_both_fail_reports_both_errors(self):
         self.stub(FetchError("python says no", network=True), FetchError("windows says no", network=True))
         with self.assertRaises(FetchError) as caught:
             self.f.get("https://x.test/")
-        self.assertEqual(str(caught.exception), "Python: python says no. Windows: windows says no")
+        self.assertEqual(str(caught.exception), "Windows: windows says no. Python: python says no")
         self.assertTrue(caught.exception.network)
         self.assertIsNone(caught.exception.status)
 
@@ -303,7 +309,7 @@ class FallbackTest(unittest.TestCase):
         with self.assertRaises(FetchError) as caught:
             self.f.get("https://www.cisa.gov/all.xml")
         self.assertEqual(str(caught.exception),
-                         "HTTP 403: the site refused access, from both download methods (reference 18.bbb)")
+                         "HTTP 403: the site refused access, from both download methods (reference 18.aaa)")
         self.assertEqual(caught.exception.status, 403)  # still counts as a refusal (tools/check_feeds.py)
         self.assertFalse(caught.exception.network)
 
@@ -321,10 +327,214 @@ class FallbackTest(unittest.TestCase):
         self.f.get("https://x.test/")
         self.assertEqual(self.calls, ["windows", "python"])
 
+    def native(self, outcome=None):
+        self.f.winhttp = mock.Mock(available=True)
+
+        def get(*args, **kwargs):
+            self.calls.append("winhttp")
+            if isinstance(outcome, Exception):
+                raise outcome
+            return ok("winhttp")
+        self.f.get_winhttp = get
+
+    def test_native_is_first_in_automatic_mode(self):
+        self.stub(FetchError("refused", 403), FetchError("refused", 403))
+        self.native()
+        self.assertEqual(self.f.get("https://cisa.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["winhttp"])
+        self.calls.clear()
+        self.assertEqual(self.f.get("https://cisa.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["winhttp"])
+        self.calls.clear()
+        self.f.get("https://other.test/feed")
+        self.assertEqual(self.calls, ["winhttp"])
+
+    def test_proxy_fallback_is_remembered_per_host(self):
+        self.stub(None, None)
+        self.native(FetchError("The proxy asked for a login", 407, network=True))
+        self.assertEqual(self.f.get("https://cisa.test/feed").via, "windows")
+        self.assertEqual(self.f.get("https://cisa.test/feed").via, "windows")
+        self.assertEqual(self.f.get("https://other.test/feed").via, "windows")
+        self.assertEqual(self.calls, ["winhttp", "windows", "windows", "winhttp", "windows"])
+
+    def test_python_remains_the_third_fallback(self):
+        self.stub(None, FetchError("refused", 403))
+        self.native(FetchError("refused", 403))
+        self.assertEqual(self.f.get("https://x.test/feed").via, "python")
+        self.assertEqual(self.calls, ["winhttp", "windows", "python"])
+        self.calls.clear()
+        self.assertEqual(self.f.get("https://x.test/feed").via, "python")
+        self.assertEqual(self.calls, ["python"])
+
+    def test_a_failed_learned_client_can_recover_through_native(self):
+        self.stub(None, None)
+        self.native(FetchError("refused", 403))
+        self.assertEqual(self.f.get("https://x.test/feed").via, "windows")
+        self.calls.clear()
+        self.stub(None, FetchError("refused", 403))
+        self.native()
+        self.assertEqual(self.f.get("https://x.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["windows", "winhttp"])
+        self.calls.clear()
+        self.assertEqual(self.f.get("https://x.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["winhttp"])
+
+    def test_portable_python_fallback_when_windows_clients_are_unavailable(self):
+        self.stub(None, None)
+        self.f.windows._exe = None
+        self.assertEqual(self.f.get("https://x.test/feed").via, "python")
+        self.assertEqual(self.calls, ["python"])
+
+    def test_native_is_used_when_powershell_is_unavailable(self):
+        self.stub(FetchError("refused", 403), None)
+        self.f.windows._exe = None
+        self.native()
+        self.assertEqual(self.f.get("https://cisa.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["winhttp"])
+
+    def test_all_three_refusals_keep_status_and_latest_reference(self):
+        self.stub(FetchError("refused", 403, reference="18.a"), FetchError("refused", 403, reference="18.b"))
+        self.native(FetchError("refused", 403, reference="18.c"))
+        with self.assertRaises(FetchError) as caught:
+            self.f.get("https://cisa.test/feed")
+        self.assertEqual(caught.exception.status, 403)
+        self.assertEqual(caught.exception.reference, "18.a")
+        self.assertIn("all 3 download methods", str(caught.exception))
+
+    def test_rate_limit_and_size_failure_do_not_try_other_clients(self):
+        for error in (FetchError("rate limited", 429), FetchError("The response is too large")):
+            self.calls.clear()
+            self.stub(None, None)
+            self.native(error)
+            with self.assertRaises(FetchError):
+                self.f.get("https://x.test/feed")
+            self.assertEqual(self.calls, ["winhttp"])
+
+    def test_forced_native_mode_does_not_try_original_clients(self):
+        self.stub(None, None)
+        self.native()
+        self.f._mode = lambda: "winhttp"
+        self.assertEqual(self.f.get("https://x.test/feed").via, "winhttp")
+        self.assertEqual(self.calls, ["winhttp"])
+
+    def test_native_redirects_are_bounded_and_keep_one_total_deadline(self):
+        self.f.winhttp = mock.Mock(available=True)
+        self.f.winhttp.request.side_effect = [
+            (302, b"", {"Location": "/final"}), (200, b"<rss/>", {})]
+        r = self.f.get_winhttp("https://public.test/start")
+        self.assertEqual(r.url, "https://public.test/final")
+        requests = self.f.winhttp.request.call_args_list
+        self.assertEqual(requests[0].kwargs["deadline"], requests[1].kwargs["deadline"])
+        self.f.winhttp.request.side_effect = None
+        self.f.winhttp.request.return_value = (302, b"", {"Location": "/loop"})
+        self.f.winhttp.request.reset_mock()
+        with self.assertRaisesRegex(FetchError, "too many times"):
+            self.f.get_winhttp("https://public.test/loop")
+        self.assertEqual(self.f.winhttp.request.call_count, fetcher.MAX_REDIRECTS + 1)
+
+    def test_native_redirect_rejects_local_and_non_http_before_request(self):
+        for target in ("http://127.0.0.1/private", "file:///c:/windows/win.ini"):
+            self.f.winhttp = mock.Mock(available=True)
+            self.f.winhttp.request.return_value = (302, b"", {"Location": target})
+            with mock.patch.object(fetcher, "is_local_address", lambda u: "127.0.0.1" in u):
+                with self.assertRaises(FetchError):
+                    self.f.get_winhttp("https://public.test/article", block_local=True)
+            self.assertEqual(self.f.winhttp.request.call_count, 1)
+
+
+@unittest.skipUnless(os.name == "nt", "WinHTTP requires Windows")
+class NativeTransportTest(unittest.TestCase):
+    def test_conditional_headers_and_not_modified(self):
+        seen = []
+
+        class Conditional(_Quiet):
+            def do_GET(self):
+                seen.append((self.headers.get("If-None-Match"), self.headers.get("If-Modified-Since")))
+                if self.headers.get("If-None-Match") == '"test-etag"':
+                    self.send_response(304)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("ETag", '"test-etag"')
+                self.send_header("Last-Modified", "Wed, 21 Oct 2026 12:00:00 GMT")
+                self.send_header("Content-Type", "application/rss+xml")
+                self.send_header("Content-Length", "6")
+                self.end_headers()
+                self.wfile.write(b"<rss/>")
+
+        srv = _serve(Conditional)
+        f = Fetcher()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}/feed"
+            first = f.get_winhttp(url)
+            second = f.get_winhttp(url, first.etag, first.last_modified)
+            self.assertEqual(first.body, b"<rss/>")
+            self.assertEqual(first.content_type, "application/rss+xml")
+            self.assertEqual((second.status, second.body), (304, b""))
+            self.assertEqual(seen, [(None, None), ('"test-etag"', "Wed, 21 Oct 2026 12:00:00 GMT")])
+        finally:
+            f.close()
+            srv.shutdown()
+            srv.server_close()
+
+    def test_body_caps_with_length_without_length_and_after_decompression(self):
+        class Body(_Quiet):
+            def do_GET(self):
+                payload = b"a" * 1000
+                if self.path == "/gzip":
+                    payload = gzip.compress(payload)
+                self.send_response(200)
+                if self.path != "/no-length":
+                    self.send_header("Content-Length", str(len(payload)))
+                if self.path == "/gzip":
+                    self.send_header("Content-Encoding", "gzip")
+                self.end_headers()
+                self.wfile.write(payload)
+
+        srv = _serve(Body)
+        f = Fetcher()
+        try:
+            with mock.patch.object(fetcher, "MAX_BYTES", 100):
+                for path in ("/length", "/no-length", "/gzip"):
+                    with self.assertRaisesRegex(FetchError, "too large") as caught:
+                        f.get_winhttp(f"http://127.0.0.1:{srv.server_port}{path}")
+                    self.assertFalse(caught.exception.network)
+        finally:
+            f.close()
+            srv.shutdown()
+            srv.server_close()
+
+    def test_native_does_not_authenticate_an_origin_or_accept_header_injection(self):
+        seen = []
+
+        class Auth(_Quiet):
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Negotiate")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        srv = _serve(Auth)
+        f = Fetcher()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}/feed"
+            with self.assertRaises(FetchError) as caught:
+                f.get_winhttp(url)
+            self.assertEqual(caught.exception.status, 401)
+            self.assertEqual(seen, [None])
+            with self.assertRaisesRegex(FetchError, "Invalid HTTP header"):
+                f.get_winhttp(url, etag="bad\r\nInjected: yes")
+            self.assertEqual(seen, [None])
+        finally:
+            f.close()
+            srv.shutdown()
+            srv.server_close()
+
 
 @unittest.skipUnless(os.environ.get("RSS_LIVE_TESTS") == "1", "set RSS_LIVE_TESTS=1 to hit the network")
 class LiveTest(unittest.TestCase):
-    def test_both_methods_fetch_a_real_feed(self):
+    def test_all_methods_fetch_a_real_feed(self):
         f = Fetcher()
         try:
             report = f.diagnose()

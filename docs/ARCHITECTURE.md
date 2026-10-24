@@ -72,7 +72,8 @@ SECURITY.md               how to report vulnerabilities privately
 app\launcher.py           single-instance lock, starts the server and refresher, opens the window, idle shutdown
 app\server.py             HTTP server: JSON API and static UI, plus the security checks
 app\store.py              SQLite schema and every query
-app\fetcher.py            HTTP: urllib first, Windows PowerShell/.NET fallback
+app\fetcher.py            HTTP selection: urllib, PowerShell/.NET, native WinHTTP
+app\winhttp_client.py     streaming winhttp.dll client with bounded reads
 app\feeds.py              feedparser to normalized articles; JSON Feed; feed autodiscovery
 app\refresher.py          background refresh loop; subscribe (add feed)
 app\updates.py            daily check of GitHub releases for a newer version
@@ -104,14 +105,17 @@ User data in `%APPDATA%\NewsDesk`:
 - The runtime is python.org's signed build.
 - PyInstaller produces unsigned exes, which antivirus and SmartScreen tend to flag.
 
-**Two download paths.**
-- urllib reads the proxy from the Windows registry. It cannot use a PAC script or log in to an NTLM/Kerberos proxy.
-- When urllib fails at the network level, or the proxy returns HTTP 407, the request is retried through a long-lived `powershell.exe` worker that uses .NET `WebRequest` with the system proxy and default credentials. That is the same path Edge uses. After that success, the Windows path becomes the preferred one for every site.
-- An HTTP 403 is also retried once through the Windows path. Some CDNs refuse Python's TLS handshake but accept Windows' (cisa.gov's Akamai does this). If the retry works, only that site switches to the Windows path.
-- The Windows path turns keep-alive off, so every request says `Connection: close`, as urllib's do. With keep-alive on, .NET sends `Connection: Keep-Alive` only on its first request to a site and no Connection header after that. cisa.gov's Akamai answered every later request with 403, so the feed failed whenever the same worker had already contacted the site (issue #2). `TransportTest` checks the header on repeated requests.
+**Three download paths.**
+- Automatic mode starts with native **WinHTTP**, then **PowerShell/.NET**, then **Python/urllib**. Only available clients are included. A successful client becomes the first choice for that host for the current app run; other sites keep their own preferences.
+- A connection failure or HTTP 403 permits trying the next client. Other HTTP errors (including 404/429) and byte/time-limit failures stop retries. A forced setting uses only its selected client.
+- The .NET fallback uses a long-lived `powershell.exe` worker with the system proxy and default proxy credentials. It supports PAC and NTLM/Kerberos proxy environments that the current WinHTTP client may refuse because automatic authentication is disabled. urllib remains a portable fallback. These clients use their own networking stacks rather than Edge's browser session.
+- The Windows path turns keep-alive off, so every request says `Connection: close`, as urllib's do. With keep-alive on, .NET sends `Connection: Keep-Alive` only on its first request to a site and no Connection header after that. This change addressed repeated-request failures observed during development, but issue #2 still reports refusals from a different work network on 1.0.4. `TransportTest` checks the header on repeated requests; it does not validate a particular network's CDN policy.
 - When both paths fail, the error reports both results instead of only the first. A CDN's `X-Reference-Error` value is appended as "(reference …)", which the site's operators can look up. It's dropped unless it looks like an ID, because it comes from the server.
 - **Settings > Connection** can force either path.
 - Default credentials go only to the proxy, never to the target site.
+- WinHTTP uses `winhttp.dll` through Python ctypes, with no extra installation. Automatic system/per-user proxy resolution remains enabled; this client disables automatic authentication, cookies and redirects. The existing .NET path still supports integrated proxy authentication. WinHTTP streams raw bytes under the 10 MiB limit, applies the same decompression cap, and shares a total deadline across manually checked HTTP(S) redirects. Certificate and hostname verification remain enabled.
+- Settings and connection diagnostics include **Windows (WinHTTP)**. This is a Windows networking client, not an Edge browser or a browser-header impersonation.
+- A refusal from all methods does not identify the exact CDN rule. The work-PC evidence and issue #2 validation steps are in [CISA-FEED.md](CISA-FEED.md).
 
 **Honest User-Agent.**
 - The app sends `NewsDesk/1.0`, not a browser string.
@@ -241,5 +245,5 @@ When updating, change both; `tests/test_dependencies.py` checks that they match 
 |---|---|
 | Nothing opens | `app.log` in the data folder. A message box shows startup errors. |
 | Every feed fails | **Settings > Connection > Test connection**, or `python\python.exe app\launcher.py --diagnose` from the app folder. |
-| One feed fails | Its sidebar row has a red dot. Click "N feeds failed" in the status bar to see each error. "From both download methods" means the automatic Windows retry was refused too: the site refuses non-browser clients, at least from that network. Pass on any "(reference …)" to the site's operators. |
+| One feed fails | Its sidebar row has a red dot. Click "N feeds failed" in the status bar to see each error. "From both download methods" means the automatic Windows retry failed too; it does not identify the site's exact blocking rule. Pass on any "(reference …)" to the site's operators. For CISA refusals, see [CISA-FEED.md](CISA-FEED.md). |
 | `pythonw.exe` blocked by AppLocker/WDAC | Run the app from a folder the policy allows, or ask the machine's administrator to allow the signed python.org runtime. |

@@ -480,13 +480,13 @@ export function settings() {
   const test = button('Test connection', async () => {
     try {
       const r = await busy(test, 'Testing…', () => api.post('/api/diagnose'));
-      const names = { python: 'Python', windows: 'Windows (PowerShell)' };
+      const names = { python: 'Python', windows: 'Windows (.NET)', winhttp: 'Windows (WinHTTP)' };
       report.replaceChildren(
         ...r.results.map((x) => el('div', {}, el('span', { class: x.ok ? 'okay' : 'bad' }, x.ok ? '✓ ' : '✗ '),
           `${names[x.method]}: ${x.ok ? `worked in ${x.ms} ms` : x.error}`)),
         el('div', { class: 'hint' }, r.recommended
-          ? `Recommended setting: ${{ auto: 'Automatic', windows: 'Windows only', python: 'Python only' }[r.recommended]}.`
-          : 'Neither method reached the internet. Check that you are online and that Edge can open the test feed.'));
+          ? `Recommended setting: ${{ auto: 'Automatic', windows: 'Windows (.NET)', python: 'Python only', winhttp: 'Windows (WinHTTP)' }[r.recommended]}.`
+          : 'No download method reached the internet. Check that you are online and that Edge can open the test feed.'));
       report.classList.remove('hidden');
     } catch (e) {
       toast(e.message, { error: true });
@@ -534,9 +534,9 @@ export function settings() {
           template,
           el('div', {}, button('Reset to default', () => { template.value = app.default_template; save({ md_template: template.value }); }, 'small')))),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Connection'),
-        row('How to download feeds', 'Automatic tries Python first, then the Windows network settings Edge uses (helps behind proxies and with picky sites).',
-          select('fetch_mode', [['auto', 'Automatic'], ['python', 'Python only'], ['windows', 'Windows only']])),
-        stack('Check the connection', 'Downloads a test feed both ways and reports which works.', el('div', {}, test), report)),
+        row('How to download feeds', 'Automatic tries the available download methods and remembers which works for each site.',
+          select('fetch_mode', [['auto', 'Automatic'], ['python', 'Python only'], ['windows', 'Windows (.NET)'], ['winhttp', 'Windows (WinHTTP)']])),
+        stack('Check the connection', 'Downloads a test feed with each method and reports which works.', el('div', {}, test), report)),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Tags'), tagEditor(() => { listDirty = true; })),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Help'),
         row('Keyboard shortcuts', null, shortcutsBtn),

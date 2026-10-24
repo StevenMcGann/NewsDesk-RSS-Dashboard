@@ -6,7 +6,7 @@ from pathlib import Path
 
 APP_NAME = "NewsDesk RSS Dashboard"  # shown to people
 SHORT_NAME = "NewsDesk"  # used for folders and files
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 GITHUB_REPO = "StevenMcGann/NewsDesk-RSS-Dashboard"  # where releases are published
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
@@ -32,7 +32,7 @@ SCHEMA = {
     "group_by": (str, ("none", "date", "feed", "date_feed"), "none"),
     "sort": (str, ("new", "old"), "new"),
     "status_filter": (str, ("all", "unread", "read"), "unread"),
-    "fetch_mode": (str, ("auto", "python", "windows"), "auto"),
+    "fetch_mode": (str, ("auto", "python", "windows", "winhttp"), "auto"),
     "save_folder": (str, None, ""),
     "md_template": (str, None, DEFAULT_TEMPLATE),
     "sidebar_width": (int, (180, 600), 280),

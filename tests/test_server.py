@@ -206,6 +206,8 @@ class ServerTest(unittest.TestCase):
 
     def test_settings_validation(self):
         self.assertEqual(self.call("PATCH", "/api/settings", {"page_size": 50})[1]["page_size"], 50)
+        self.assertEqual(self.call("PATCH", "/api/settings", {"fetch_mode": "winhttp"})[1]["fetch_mode"], "winhttp")
+        self.assertEqual(self.call("PATCH", "/api/settings", {"fetch_mode": "invalid"})[0], 400)
         self.assertEqual(self.call("PATCH", "/api/settings", {"page_size": 0})[0], 400)
         self.assertEqual(self.call("PATCH", "/api/settings", {"nope": 1})[0], 400)
         self.assertEqual(self.call("PATCH", "/api/settings", {"theme": "neon"})[0], 400)

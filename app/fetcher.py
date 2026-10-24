@@ -1,9 +1,8 @@
-"""HTTP fetching that also works behind corporate proxies.
+"""HTTP fetching with native WinHTTP first and compatible fallback clients.
 
-Python's urllib reads the proxy from the Windows registry, but it can't use a PAC
-script or log in to an NTLM/Kerberos proxy. When urllib can't reach the network,
-the request is retried through Windows PowerShell's .NET HTTP stack, which uses the
-same system proxy and Windows login that Edge does.
+Automatic mode tries WinHTTP, PowerShell/.NET and urllib, remembering a successful
+client per host for the current run. The .NET path supports Windows-authenticated
+proxies; urllib remains a portable fallback. Browser sessions are independent.
 """
 import base64
 import http.client
@@ -24,6 +23,8 @@ import urllib.request
 import zlib
 from dataclasses import dataclass
 
+from winhttp_client import DownloadTimeout, ResponseTooLarge, WinHttpClient
+
 log = logging.getLogger(__name__)
 
 TIMEOUT = 15         # seconds per connect or read
@@ -31,9 +32,8 @@ TOTAL_TIMEOUT = 60   # seconds for the whole download, however slowly it trickle
 MAX_REDIRECTS = 5
 MAX_BYTES = 10 * 1024 * 1024
 TOO_SLOW = "The site took too long to send its response"
-# Identify honestly as a feed reader. A browser-looking User-Agent paired with Python's
-# or .NET's TLS handshake looks like a disguised bot to CDNs such as Akamai, which then
-# answer 403 (cisa.gov does this).
+# All clients identify honestly as the same feed reader while retaining their
+# own networking behavior. Keep the proven CISA-compatible User-Agent stable.
 USER_AGENT = "NewsDesk/1.0 (Windows; desktop feed reader)"
 ACCEPT_FEED = ("application/rss+xml, application/atom+xml, application/feed+json, "
                "application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8")
@@ -60,6 +60,20 @@ def _both_failed(first: FetchError, second: FetchError, names) -> FetchError:
         message = f"{names[0]}: {first.reason}. {names[1]}: {second.reason}"
     return FetchError(message, first.status if first.status == second.status else None,
                       first.network and second.network, second.reference or first.reference)
+
+
+def _downloads_failed(failures) -> FetchError:
+    if len(failures) == 1:
+        return failures[0][1]
+    if len(failures) == 2:
+        return _both_failed(failures[0][1], failures[1][1], [name for name, _ in failures])
+    errors = [error for _, error in failures]
+    same_status = errors[0].status is not None and all(e.status == errors[0].status for e in errors)
+    message = (f"{errors[0].reason}, from all {len(errors)} download methods" if same_status else
+               ". ".join(f"{name}: {error.reason}" for name, error in failures))
+    reference = next((e.reference for e in reversed(errors) if e.reference), None)
+    return FetchError(message, errors[0].status if same_status else None,
+                      all(e.network for e in errors), reference)
 
 
 @dataclass
@@ -133,9 +147,10 @@ class Fetcher:
     def __init__(self, mode=lambda: "auto"):
         self._mode = mode
         self._ctx = _ssl_context()
-        self._prefer_windows = False  # urllib can't reach the network at all (proxy)
-        self._windows_hosts = set()   # sites that refuse urllib but accept Windows' HTTP stack
         self.windows = PowerShellPool()
+        self.winhttp = WinHttpClient()
+        self._host_methods = {}  # preferences are per host and last for this run
+        self._winhttp_slots = threading.BoundedSemaphore(3)
 
     def get(self, url, etag=None, last_modified=None, accept=ACCEPT_FEED, block_local=False) -> Response:
         """Download url. block_local refuses this computer's own addresses, for links that
@@ -149,32 +164,71 @@ class Fetcher:
             return self.get_python(*args)
         if mode == "windows":
             return self.windows.get(*args)
+        if mode == "winhttp":
+            return self.get_winhttp(*args)
         host = urllib.parse.urlsplit(url).hostname
-        methods = [self.get_python, self.windows.get]
-        names = ["Python", "Windows"]
-        if self._prefer_windows or host in self._windows_hosts:
-            methods.reverse()
-            names.reverse()
-        try:
-            return methods[0](*args)
-        except FetchError as first:
-            # Some CDNs (Akamai on cisa.gov, for one) refuse Python's TLS handshake with a 403
-            # but accept the Windows stack Edge uses, so a 403 is worth one retry too.
-            if not (first.network or first.status == 403) or not self.windows.available:
-                raise
+        methods = []
+        if self.winhttp.available:
+            methods.append(("WinHTTP", self.get_winhttp))
+        if self.windows.available:
+            methods.append(("Windows", self.windows.get))
+        methods.append(("Python", self.get_python))
+        preferred = self._host_methods.get(host)
+        methods.sort(key=lambda entry: entry[0] != preferred)
+        failures = []
+        for name, method in methods:
             try:
-                result = methods[1](*args)
-            except FetchError as second:
-                log.info("%s and %s both failed for %s: %s / %s", *names, host, first, second)
-                raise _both_failed(first, second, names) from None
-            if first.network:
-                self._prefer_windows = result.via == "windows"
-            elif result.via == "windows":
-                self._windows_hosts.add(host)
-            else:
-                self._windows_hosts.discard(host)
-            log.info("Used %s fetching for %s after: %s", result.via, host, first)
+                result = method(*args)
+            except FetchError as error:
+                failures.append((name, error))
+                # Do not multiply 404/429 requests, body-limit failures or timeouts.
+                if not (error.network or error.status == 403):
+                    break
+                continue
+            self._host_methods[host] = name
+            if failures:
+                log.info("Used %s fetching for %s after: %s", result.via, host,
+                         "; ".join(f"{label}: {e}" for label, e in failures))
             return result
+        raise _downloads_failed(failures)
+
+    def get_winhttp(self, url, etag=None, last_modified=None, accept=ACCEPT_FEED, block_local=False) -> Response:
+        if not self.winhttp.available:
+            raise FetchError("Windows WinHTTP is not available")
+        headers = {"Accept": accept, "Accept-Encoding": "gzip, deflate", "Connection": "close"}
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
+        current = check_url(url)
+        with self._winhttp_slots:
+            deadline = time.monotonic() + TOTAL_TIMEOUT
+            for _ in range(MAX_REDIRECTS + 1):
+                if block_local and is_local_address(current):
+                    raise FetchError(LOCAL_REFUSED)
+                try:
+                    status, body, response_headers = self.winhttp.request(
+                        current, USER_AGENT, headers, deadline=deadline, timeout=TIMEOUT, max_bytes=MAX_BYTES)
+                except DownloadTimeout:
+                    raise FetchError(TOO_SLOW) from None
+                except ResponseTooLarge as e:
+                    raise FetchError(str(e)) from None
+                except OSError as e:
+                    raise FetchError(f"Could not connect through WinHTTP: {e}", network=True) from None
+                except ValueError as e:
+                    raise FetchError(str(e)) from None
+                if status in (301, 302, 303, 307, 308) and response_headers.get("Location"):
+                    current = check_url(urllib.parse.urljoin(current, response_headers["Location"]))
+                    continue
+                if status == 304:
+                    return Response(304, current, b"", "", etag, last_modified, "winhttp")
+                if status >= 400:
+                    raise FetchError(_http_message(status), status, network=status == 407,
+                                     reference=response_headers.get("X-Reference-Error"))
+                body = _decompress(body, response_headers.get("Content-Encoding", ""))
+                return Response(status, current, body, response_headers.get("Content-Type", ""),
+                                response_headers.get("ETag"), response_headers.get("Last-Modified"), "winhttp")
+        raise FetchError("The site redirected too many times")
 
     def get_python(self, url, etag=None, last_modified=None, accept=ACCEPT_FEED, block_local=False) -> Response:
         headers = {"User-Agent": USER_AGENT, "Accept": accept, "Accept-Encoding": "gzip, deflate"}
@@ -209,7 +263,8 @@ class Fetcher:
 
     def diagnose(self, url=TEST_URL) -> dict:
         report = {"url": url, "proxy": proxy_summary(), "results": []}
-        for name, method in (("python", self.get_python), ("windows", self.windows.get)):
+        for name, method in (("winhttp", self.get_winhttp), ("windows", self.windows.get),
+                             ("python", self.get_python)):
             started = time.monotonic()
             entry = {"method": name}
             try:
@@ -220,7 +275,7 @@ class Fetcher:
             entry["ms"] = int((time.monotonic() - started) * 1000)
             report["results"].append(entry)
         working = [r["method"] for r in report["results"] if r["ok"]]
-        report["recommended"] = "auto" if "python" in working else (working[0] if working else None)
+        report["recommended"] = "auto" if working else None
         return report
 
     def close(self):
