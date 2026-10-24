@@ -48,7 +48,9 @@ includes, or in your default browser if Edge isn't there.
 ## Privacy
 
 - The app runs a small server that only your own computer can reach.
-- It contacts only the feeds and websites you add.
+- It contacts the feeds and websites you add, plus GitHub once a day to see whether a
+  newer NewsDesk has been released. You can turn that check off in
+  **Settings > Help**. Updates are never downloaded or installed automatically.
 - Your feeds, articles and settings live in `%APPDATA%\NewsDesk`.
 - Nothing is sent anywhere else, and there are no accounts, ads or tracking.
 

@@ -17,6 +17,7 @@ from fetcher import FetchError, Response
 from refresher import Refresher
 from server import App, create_server
 from store import Store
+from updates import UpdateChecker
 
 PAGES = {
     "https://site.test/": (200, sample("page.html"), "text/html; charset=windows-1252"),
@@ -208,6 +209,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.call("PATCH", "/api/settings", {"page_size": 0})[0], 400)
         self.assertEqual(self.call("PATCH", "/api/settings", {"nope": 1})[0], 400)
         self.assertEqual(self.call("PATCH", "/api/settings", {"theme": "neon"})[0], 400)
+
+    def test_update_check_route(self):
+        self.assertEqual(self.call("POST", "/api/update/check", {}, token=False)[0], 403)
+        self.assertEqual(self.call("POST", "/api/update/check", {})[0], 400)  # no checker attached
+        tag = {"tag_name": "v99.1.0", "name": "x", "html_url": f"https://github.com/{config.GITHUB_REPO}/releases/tag/v99.1.0"}
+
+        class ReleaseFetcher:
+            def get(self, url, **kw):
+                return Response(200, url, json.dumps(tag).encode(), "application/json", None, None, "python")
+
+        self.app.updates = UpdateChecker(ReleaseFetcher(), self.settings, Path(self.tmp.name))
+        try:
+            status, body = self.call("POST", "/api/update/check", {})
+            self.assertEqual((status, body["available"], body["latest"]["version"]), (200, True, "99.1.0"))
+            self.assertTrue(self.call("POST", "/api/heartbeat", {})[1]["update"]["available"])
+            self.assertTrue(self.call("GET", "/api/state")[1]["update"]["available"])
+        finally:
+            self.app.updates = None
 
     def test_errors_are_json(self):
         self.assertEqual(self.call("GET", "/api/items/99999")[0], 404)

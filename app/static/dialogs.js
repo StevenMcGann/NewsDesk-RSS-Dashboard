@@ -1,6 +1,8 @@
 // Dialogs and popovers: adding and editing feeds/folders, import/export, settings, tags, help.
 import { api } from './api.js';
-import { closePopover, el, icon, iconButton, popover, setImagesBlocked, setVar, toast } from './util.js';
+import { ago, closePopover, el, icon, iconButton, popover, setImagesBlocked, setVar, toast } from './util.js';
+import { openExternal } from './articles.js';
+import { renderUpdate } from './sidebar.js';
 
 let ctx;
 const TAG_COLORS = ['#e5484d', '#3e63dd', '#e2a336', '#30a46c', '#8e4ec6', '#f76b15', '#12a594', '#d6409f', '#8b8d98'];
@@ -492,6 +494,20 @@ export function settings() {
   }, 'small');
 
   const shortcutsBtn = button('Show', () => shortcuts(), 'small');
+  const updateStatus = el('div', { class: 'desc' }, updateText(ctx.state.update));
+  const getIt = button('Get it', () => openExternal(ctx.state.update?.latest?.url), 'small primary');
+  getIt.classList.toggle('hidden', !ctx.state.update?.available);
+  const checkNow = button('Check now', async () => {
+    try {
+      const status = await busy(checkNow, 'Checking…', () => api.post('/api/update/check'));
+      ctx.state.update = status;
+      updateStatus.textContent = updateText(status);
+      getIt.classList.toggle('hidden', !status.available);
+      renderUpdate();
+    } catch (e) {
+      toast(e.message, { error: true });
+    }
+  }, 'small');
   const app = ctx.state.data.app;
   dialog({
     title: 'Settings',
@@ -525,11 +541,24 @@ export function settings() {
       el('section', { class: 'settings-section' }, el('h3', {}, 'Help'),
         row('Keyboard shortcuts', null, shortcutsBtn),
         row('Your data', app.data_dir, button('Open folder', () => api.post('/api/open-folder', { which: 'data' }).catch((e) => toast(e.message, { error: true })), 'small')),
-        row('Version', null, el('span', { class: 'hint' }, app.version)),
+        row('Check for new versions', 'Once a day NewsDesk asks GitHub whether a newer version is out. Nothing is downloaded automatically.',
+          toggle('check_updates', () => renderUpdate())),
+        el('div', { class: 'setting-row' },
+          el('div', { class: 'what' }, el('div', {}, `Version ${app.version}`), updateStatus),
+          el('div', { class: 'inline' }, getIt, checkNow)),
         row('Credits', 'Layout and workflow modeled on RSS Dashboard for Obsidian by amatya-aditya.',
           button('View project', () => window.open('https://github.com/amatya-aditya/obsidian-rss-dashboard', '_blank', 'noopener,noreferrer'), 'small'))),
     ],
   });
+}
+
+function updateText(u) {
+  if (!u) return 'Update checks are not available.';
+  if (u.error) return `Couldn't check for updates: ${u.error}`;
+  if (u.available) return `Version ${u.latest.version} is available.`;
+  if (!u.checked_at) return 'Not checked yet.';
+  if (!u.latest) return 'No releases have been published yet.';
+  return `You have the latest version. Checked ${ago(u.checked_at)}.`;
 }
 
 export function shortcuts() {

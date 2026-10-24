@@ -27,6 +27,7 @@ from fetcher import Fetcher  # noqa: E402
 from refresher import Refresher  # noqa: E402
 from server import App, create_server  # noqa: E402
 from store import Store  # noqa: E402
+from updates import UpdateChecker  # noqa: E402
 
 DEFAULT_PORT = 47821
 IDLE_LIMIT = 180     # no heartbeat for this long: windows are gone (hidden windows tick once a minute)
@@ -79,12 +80,14 @@ def serve(data: Path, args):
     store = Store(data / "dashboard.db")
     fetcher = Fetcher(lambda: settings.get("fetch_mode"))
     refresher = Refresher(store, fetcher, settings)
-    app = App(store, settings, fetcher, refresher, data)
+    updates = UpdateChecker(fetcher, settings, data)
+    app = App(store, settings, fetcher, refresher, data, updates)
     srv = create_server(app, args.port)
     url = f"http://127.0.0.1:{app.port}/"
     (data / "instance.json").write_text(json.dumps({"port": app.port, "pid": os.getpid()}), encoding="utf-8")
     log.info("NewsDesk %s serving %s (data in %s)", config.VERSION, url, data)
     refresher.start()
+    updates.start()
     if not args.stay:
         threading.Thread(target=watchdog, args=(app, srv), name="watchdog", daemon=True).start()
     if not args.no_window:
@@ -93,6 +96,7 @@ def serve(data: Path, args):
         srv.serve_forever(poll_interval=0.5)
     finally:
         refresher.stop()
+        updates.stop()
         fetcher.close()
         srv.server_close()
         store.close()

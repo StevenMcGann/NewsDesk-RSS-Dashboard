@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { ago, el, favicon, fmt, fullDate, icon, iconButton, menu, setVar, toast } from './util.js';
 import * as dialogs from './dialogs.js';
+import { openExternal } from './articles.js';
 
 let ctx;
 let drag = null;
@@ -31,6 +32,29 @@ export function render() {
   renderViews();
   renderTree();
   renderStatus();
+  renderUpdate();
+}
+
+// "Version X is available" note, until the user opens it or closes it for that version.
+export function renderUpdate() {
+  const box = document.getElementById('sb-update');
+  const u = ctx.state.update;
+  const s = ctx.state.settings;
+  const show = Boolean(u && u.available && u.latest && s.check_updates && u.latest.version !== s.update_dismissed);
+  box.classList.toggle('hidden', !show);
+  if (!show) {
+    box.replaceChildren();
+    return;
+  }
+  const dismiss = () => {
+    ctx.updateSettings({ update_dismissed: u.latest.version }, { quiet: true }).catch(() => {});
+    renderUpdate();
+  };
+  box.replaceChildren(
+    icon('download'),
+    el('span', { class: 'grow' }, `NewsDesk ${u.latest.version} is available`),
+    el('button', { type: 'button', class: 'btn small primary', onclick: () => openExternal(u.latest.url) }, 'Get it'),
+    iconButton('x', 'Not now (hide until the next version)', dismiss, 'small'));
 }
 
 function activate(row, action) {

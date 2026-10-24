@@ -15,8 +15,12 @@ The installer copies NewsDesk to `%LOCALAPPDATA%\Programs\NewsDesk` and adds a
 **NewsDesk** shortcut to your desktop and Start menu. It needs no admin rights and
 registers nothing with Windows. Afterwards you can delete the folder you unzipped.
 
-Closing the window stops the app; start it again from the shortcut. To update, unzip a
-newer version and run **Install NewsDesk** again. Your feeds and settings are kept.
+Closing the window stops the app; start it again from the shortcut.
+
+**Updating:** when a new version comes out, a note appears at the bottom of the sidebar.
+Click **Get it** to open the download page, unzip the new version, and run
+**Install NewsDesk** again. Your feeds and settings are kept. NewsDesk checks once a day;
+**Settings > Help** has **Check now** and a switch to turn the check off.
 
 **Without installing:** double-click **Start NewsDesk** in the unzipped folder instead.
 It runs the same app from wherever you unzipped it.

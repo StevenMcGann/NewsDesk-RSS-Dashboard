@@ -7,6 +7,7 @@ from pathlib import Path
 APP_NAME = "NewsDesk RSS Dashboard"  # shown to people
 SHORT_NAME = "NewsDesk"  # used for folders and files
 VERSION = "1.0.0"
+GITHUB_REPO = "StevenMcGann/NewsDesk-RSS-Dashboard"  # where releases are published
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
@@ -38,6 +39,8 @@ SCHEMA = {
     "reader_width": (int, (0, 3000), 0),
     "sidebar_collapsed": (bool, None, False),
     "first_run_done": (bool, None, False),
+    "check_updates": (bool, None, True),
+    "update_dismissed": (str, None, ""),  # version whose "update available" note was closed
 }
 
 

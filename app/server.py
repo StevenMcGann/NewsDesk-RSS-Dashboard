@@ -64,6 +64,7 @@ ROUTES = [(method, re.compile(f"^{pattern}$"), name) for method, pattern, name i
     ("GET", r"/api/settings", "settings_get"),
     ("PATCH", r"/api/settings", "settings_update"),
     ("POST", r"/api/diagnose", "diagnose"),
+    ("POST", r"/api/update/check", "update_check"),
     ("POST", r"/api/heartbeat", "heartbeat"),
     ("POST", r"/api/bye", "bye"),
 ]]
@@ -86,12 +87,13 @@ class Raw:
 class App:
     """The services request handlers use, plus window-liveness tracking."""
 
-    def __init__(self, store, settings, fetcher, refresher, data_dir: Path):
+    def __init__(self, store, settings, fetcher, refresher, data_dir: Path, updates=None):
         self.store = store
         self.settings = settings
         self.fetcher = fetcher
         self.refresher = refresher
         self.data_dir = data_dir
+        self.updates = updates
         self.token = secrets.token_urlsafe(32)
         self.port = 0
         self.started = time.monotonic()
@@ -279,6 +281,7 @@ class Handler(BaseHTTPRequestHandler):
             "starter_available": config.STARTER_OPML.is_file(),
             "default_template": config.DEFAULT_TEMPLATE,
         }
+        state["update"] = a.updates.status() if a.updates else None
         return state
 
     def api_items(self):
@@ -429,9 +432,15 @@ class Handler(BaseHTTPRequestHandler):
     def api_diagnose(self):
         return self.app.fetcher.diagnose()
 
+    def api_update_check(self):
+        if not self.app.updates:
+            raise ApiError(400, "Update checks aren't available")
+        return self.app.updates.check()
+
     def api_heartbeat(self):
         self.app.heartbeat()
-        return {"version": self.app.store.version, "refresh": self.app.refresher.snapshot()}
+        return {"version": self.app.store.version, "refresh": self.app.refresher.snapshot(),
+                "update": self.app.updates.status() if self.app.updates else None}
 
     def api_bye(self):
         if same_secret(self.arg("t", ""), self.app.token):

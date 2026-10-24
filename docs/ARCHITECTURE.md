@@ -42,6 +42,13 @@ The script does the following:
 To move to a newer Python, pass `-PythonVersion` and `-PythonSha256` with the values from
 the python.org release page, or update the defaults.
 
+**Publishing a release.**
+1. Set `VERSION` in `app/config.py` (for example `1.1.0`) and commit.
+2. Build: `pwsh -File .\build_portable.ps1 -Test`.
+3. Publish: `gh release create v1.1.0 dist\NewsDesk-1.1.0.zip --title "NewsDesk 1.1.0" --notes "..."`.
+
+The tag must be `v` plus the same version: that is what the in-app update check compares.
+
 **Publishing.** Attach the zip to a GitHub release.
 - Downloaded copies carry Mark-of-the-Web, so Windows shows a security prompt on first run. Unblocking the zip before unzipping avoids it.
 - The launcher also runs from a `\\server\share` folder. Each user's data still goes to their own `%APPDATA%`.
@@ -63,6 +70,7 @@ app\store.py              SQLite schema and every query
 app\fetcher.py            HTTP: urllib first, Windows PowerShell/.NET fallback
 app\feeds.py              feedparser to normalized articles; JSON Feed; feed autodiscovery
 app\refresher.py          background refresh loop; subscribe (add feed)
+app\updates.py            daily check of GitHub releases for a newer version
 app\opml.py, export_md.py OPML import/export; Markdown files with frontmatter
 app\config.py             paths, settings schema and defaults
 app\vendor\               feedparser 6.0.14 and feedparser-sgmllib 2.1.0 (pure Python)
@@ -126,6 +134,13 @@ User data in `%APPDATA%\NewsDesk`:
   - `chcp 65001`, the usual way to put non-ASCII paths in a batch file, breaks `set /p` prompts.
   - The installer records its shortcuts in `install.json`. The uninstaller deletes only `NewsDesk.lnk` files listed there, and refuses to run where that file is missing, such as in the unzipped download.
 - A real setup.exe (Inno Setup: uninstall entry under Settings > Apps) is a possible later step.
+
+**Update check: tell the user, never act.**
+- `app/updates.py` asks `api.github.com/repos/StevenMcGann/NewsDesk-RSS-Dashboard/releases/latest` at most once a day. The first check is 30 s after startup; then it re-checks hourly whether the day has passed. It goes through the normal fetcher, so it works behind proxies.
+- The result is saved in `update.json` in the data folder, and the UI receives it with `/api/state` and every heartbeat.
+- A tag newer than `config.VERSION` (for example `v1.1.0`) shows a sidebar note linking to the release page. Only links under the repo's `/releases/` are used; anything else falls back to the releases page.
+- Nothing is downloaded or run. "Not now" stores the dismissed version in settings, and the check can be turned off.
+- A 404 means no release exists yet, which is not treated as an error.
 
 **Pruning.**
 - Read articles older than the retention period are deleted only if all of these hold:

@@ -19,6 +19,7 @@ const state = {
   readerItem: null,
   version: null,
   refresh: { running: false, done: 0, total: 0, errors: 0, last_run: null },
+  update: null,
   userRefresh: false,
   newSinceLoad: false,
 };
@@ -59,6 +60,7 @@ async function loadState() {
   state.data = data;
   state.settings = data.settings;
   state.refresh = data.refresh;
+  state.update = data.update;
   if (state.version === null) state.version = data.version;
   setImagesBlocked(state.settings.block_remote_images);
   if (!viewExists(state.view)) state.view = 'all';
@@ -307,6 +309,10 @@ async function heartbeat() {
   const finished = state.refresh.running && !hb.refresh.running;
   state.refresh = hb.refresh;
   sidebar.renderStatus();
+  if (JSON.stringify(hb.update) !== JSON.stringify(state.update)) {
+    state.update = hb.update;
+    sidebar.renderUpdate();
+  }
   const changed = hb.version !== state.version;
   if (changed) {
     state.version = hb.version;
