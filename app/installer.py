@@ -106,11 +106,21 @@ def running_from(folder: Path) -> list:
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
                                                     ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetLongPathNameW.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+
+    def long_form(path: str) -> str:
+        # A program started through a short 8.3 path (C:\Users\RUNNER~1\...) reports its
+        # image name that way, so both sides are compared in long form.
+        if "~" not in path:
+            return path
+        buf = ctypes.create_unicode_buffer(32768)
+        return buf.value if kernel32.GetLongPathNameW(path, buf, len(buf)) else path
+
     pids = (wintypes.DWORD * 8192)()
     needed = wintypes.DWORD()
     if not kernel32.K32EnumProcesses(pids, ctypes.sizeof(pids), ctypes.byref(needed)):
         raise ctypes.WinError(ctypes.get_last_error())
-    prefix = str(folder.resolve()).lower().rstrip("\\") + "\\"
+    prefix = long_form(str(folder.resolve())).lower().rstrip("\\") + "\\"
     found = []
     for pid in pids[:needed.value // ctypes.sizeof(wintypes.DWORD)]:
         if pid in (0, os.getpid()):
@@ -122,7 +132,7 @@ def running_from(folder: Path) -> list:
             name = ctypes.create_unicode_buffer(32768)
             size = wintypes.DWORD(len(name))
             if kernel32.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(size)) \
-                    and name.value.lower().startswith(prefix):
+                    and long_form(name.value).lower().startswith(prefix):
                 found.append(pid)
         finally:
             kernel32.CloseHandle(handle)

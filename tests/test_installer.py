@@ -1,8 +1,10 @@
+import ctypes
 import json
 import os
 import subprocess
 import tempfile
 import unittest
+from ctypes import wintypes
 from pathlib import Path
 
 import _path  # noqa: F401
@@ -98,6 +100,25 @@ class InstallerTest(unittest.TestCase):
             proc.kill()
             proc.wait()
         self.assertEqual(installer.running_from(self.target), [])
+
+    def test_detects_a_program_started_through_a_short_path(self):
+        folder = self.root / "A long folder name"
+        folder.mkdir()
+        program = folder / "pinger.exe"
+        program.write_bytes(Path(os.environ["SystemRoot"], "System32", "PING.EXE").read_bytes())
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetShortPathNameW.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+        buf = ctypes.create_unicode_buffer(32768)
+        if not kernel32.GetShortPathNameW(str(folder), buf, len(buf)) or "~" not in buf.value:
+            self.skipTest("8.3 short names are turned off on this drive")
+        proc = subprocess.Popen([str(Path(buf.value, "pinger.exe")), "-n", "30", "127.0.0.1"],
+                                stdout=subprocess.DEVNULL)
+        try:
+            self.assertEqual(installer.running_from(folder), [proc.pid])
+            self.assertEqual(installer.running_from(Path(buf.value)), [proc.pid])
+        finally:
+            proc.kill()
+            proc.wait()
 
     def test_batch_files_are_ascii_with_windows_line_endings(self):
         for path in (_path.APP / "uninstall.bat", _path.ROOT / "Install NewsDesk.bat", _path.ROOT / "Start NewsDesk.bat"):
