@@ -15,6 +15,10 @@ import feeds  # noqa: E402
 import opml  # noqa: E402
 from fetcher import FetchError, Fetcher  # noqa: E402
 
+# Some sites (cisa.gov's Akamai, for one) refuse cloud datacenter addresses outright. From a
+# CI runner that says nothing about whether the feed works for a user, so it's a warning.
+REFUSED = {403, 429}
+
 
 def flatten(nodes, folder=""):
     for node in nodes:
@@ -27,7 +31,7 @@ def flatten(nodes, folder=""):
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # a Windows CI console is cp1252
     source =Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "starter-feeds.opml"
-    rows, failed = [], 0
+    rows, failed, refused = [], 0, 0
     fetcher = Fetcher()
     try:
         for folder, title, url in flatten(opml.parse(source.read_bytes())):
@@ -36,15 +40,22 @@ def main() -> int:
                 r = fetcher.get(url)
                 _, entries = feeds.parse(r.body, r.url, r.content_type)
                 result = f"{len(entries)} articles via {r.via}" if entries else "no articles"
-                ok = bool(entries)
-            except (FetchError, feeds.FeedError) as e:
-                result, ok = str(e), False
-            failed += not ok
-            rows.append(f"| {'✅' if ok else '❌'} | {folder} | {title} | {result} | {time.monotonic() - started:.1f}s |")
+                mark = "✅" if entries else "❌"
+            except FetchError as e:
+                result = str(e) + (" from this network" if e.status in REFUSED else "")
+                mark = "⚠️" if e.status in REFUSED else "❌"
+            except feeds.FeedError as e:
+                result, mark = str(e), "❌"
+            failed += mark == "❌"
+            refused += mark == "⚠️"
+            rows.append(f"| {mark} | {folder} | {title} | {result} | {time.monotonic() - started:.1f}s |")
     finally:
         fetcher.close()
+    total = f"{len(rows) - failed - refused} of {len(rows)} feeds OK"
+    if refused:
+        total += f"; {refused} refused this network (⚠️, not counted as failures)"
     report = "\n".join(["## Starter feeds", "", "| | Folder | Feed | Result | Time |", "|---|---|---|---|---|", *rows, "",
-                        f"{len(rows) - failed} of {len(rows)} feeds OK."])
+                        total + "."])
     print(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

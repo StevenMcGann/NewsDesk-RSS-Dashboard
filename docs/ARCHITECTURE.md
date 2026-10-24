@@ -211,7 +211,7 @@ Feed content and web pages are untrusted.
 
 | Workflow | Runs | What it does |
 |---|---|---|
-| `ci.yml` Tests | Every push and PR, plus daily at 06:23 UTC | All unit tests on Windows, with Python 3.12 and 3.14. The daily run also covers: the live download tests by both paths; `tools/check_feeds.py`, which checks that every starter feed loads; and `build_portable.ps1 -Test`, which re-checks the bundled Python's SHA-256 and signature. The built zip is kept as a 7-day artifact. |
+| `ci.yml` Tests | Every push and PR, plus daily at 06:23 UTC | All unit tests on Windows, with Python 3.12 and 3.14. The daily run also covers: the live download tests by both paths; `tools/check_feeds.py`, which checks that every starter feed loads (a 403 or 429 is only a warning, because sites such as cisa.gov refuse cloud datacenter addresses); and `build_portable.ps1 -Test`, which re-checks the bundled Python's SHA-256 and signature. The built zip is kept as a 7-day artifact. |
 | `codeql.yml` CodeQL | Every push and PR, plus daily | `security-extended` queries for Python and JavaScript. Vendored code and tests are excluded (`.github/codeql/codeql-config.yml`). Results appear in the Security tab. |
 | `dependencies.yml` Dependency check | Daily at 07:07 UTC | `tools/check_dependencies.py` checks each component in `tools/dependencies.json` against [OSV](https://osv.dev) and its registry, and keeps one `dependencies` issue open while something needs doing. |
 
