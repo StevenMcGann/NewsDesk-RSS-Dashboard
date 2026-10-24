@@ -31,7 +31,9 @@ everything stays on your computer.
 ## Get started
 
 1. Download `NewsDesk-<version>.zip` from the [latest release](../../releases/latest).
-2. Unzip it, open the **NewsDesk** folder and double-click **Install NewsDesk**.
+2. Unzip it, open the **NewsDesk** folder and double-click **Install NewsDesk**. Windows
+   asks once whether to run a script from an unverified publisher; click **Run**. To skip
+   that prompt, right-click the zip, choose **Properties > Unblock** before unzipping.
 3. Start NewsDesk from the new desktop or Start menu shortcut. Click
    **Add the starter feeds**, **Add a feed**, or **Import a file**.
 

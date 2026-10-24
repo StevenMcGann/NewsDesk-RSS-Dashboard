@@ -6,7 +6,7 @@ from pathlib import Path
 
 APP_NAME = "NewsDesk RSS Dashboard"  # shown to people
 SHORT_NAME = "NewsDesk"  # used for folders and files
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 GITHUB_REPO = "StevenMcGann/NewsDesk-RSS-Dashboard"  # where releases are published
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent

@@ -33,6 +33,17 @@ class InstallerTest(unittest.TestCase):
         self.assertFalse((self.target / "app" / "stale.py").exists())
         self.assertEqual(sorted(p.name for p in self.target.parent.iterdir()), ["NewsDesk"])
 
+    def test_installed_copy_loses_the_internet_mark(self):
+        marked = [self.source / "python" / "pythonw.exe", self.source / "app" / "launcher.py"]
+        for path in marked:
+            with open(f"{path}:Zone.Identifier", "w", encoding="ascii") as stream:
+                stream.write("[ZoneTransfer]\nZoneId=3\n")
+            self.assertTrue(os.path.exists(f"{path}:Zone.Identifier"))
+        installer.copy_app(self.source, self.target)
+        for rel in ("python/pythonw.exe", "app/launcher.py", "README.md"):
+            self.assertFalse(os.path.exists(f"{self.target / rel}:Zone.Identifier"), rel)
+        self.assertTrue(os.path.exists(f"{marked[0]}:Zone.Identifier"))  # the download itself is untouched
+
     def test_running_copy_is_detected_before_overwriting(self):
         installer.copy_app(self.source, self.target)
         with open(self.target / "python" / "pythonw.exe", "rb"):  # held open, as a running app would

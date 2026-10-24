@@ -8,6 +8,12 @@ window. It runs only on your computer.
 1. Unzip the download. Don't run it from inside the zip preview.
 2. Open the **NewsDesk** folder and double-click **Install NewsDesk**. A small window
    shows the progress.
+   - Windows will probably ask "The publisher could not be verified. Are you sure you want
+     to run this software?" It asks this about any script downloaded from the internet.
+     Click **Run**. You're only asked once: the installer clears the "downloaded" mark
+     from the installed copy, so the shortcuts start without prompts.
+   - To skip the prompt entirely, right-click the zip before unzipping it, choose
+     **Properties**, tick **Unblock**, and click **OK**.
 3. Answer **y** to start NewsDesk. The first time, click **Add the starter feeds**,
    **Add a feed** or **Import a file**.
 
@@ -25,9 +31,9 @@ Click **Get it** to open the download page, unzip the new version, and run
 **Without installing:** double-click **Start NewsDesk** in the unzipped folder instead.
 It runs the same app from wherever you unzipped it.
 
-**If Windows shows a security prompt** the first time, it's because the zip came from the
-internet. You can avoid it by right-clicking the zip, choosing **Properties**, ticking
-**Unblock**, and then unzipping.
+**Already used NewsDesk on this PC?** The installed copy picks up your existing feeds and
+settings from `%APPDATA%\NewsDesk`. To start completely fresh, uninstall and answer **y**
+when asked whether to delete your feeds and settings, then install again.
 
 **To uninstall,** close NewsDesk and run **Uninstall NewsDesk** in
 `%LOCALAPPDATA%\Programs\NewsDesk`. It removes the app and its shortcuts, then asks

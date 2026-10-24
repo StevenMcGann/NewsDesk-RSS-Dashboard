@@ -134,6 +134,25 @@ RUNNING = "NewsDesk is still running. Close its window, wait about 30 seconds, t
 
 # ---- install ---------------------------------------------------------------------------
 
+def unblock(folder: Path) -> int:
+    """Remove the "downloaded from the internet" mark (the Zone.Identifier stream).
+
+    Unzipping a downloaded zip marks every file, and Windows copies the mark along. The
+    user already approved running the installer, so clear it from the installed copy,
+    like Windows' "Unblock" or PowerShell's Unblock-File; otherwise Windows can show a
+    security prompt every time NewsDesk starts.
+    """
+    cleared = 0
+    for path in folder.rglob("*"):
+        if path.is_file():
+            try:
+                os.remove(f"{path}:Zone.Identifier")
+                cleared += 1
+            except OSError:
+                pass  # no mark, or not an NTFS volume
+    return cleared
+
+
 def copy_app(source: Path, target: Path):
     """Copy into a fresh folder and swap it in, so an update leaves no stale files.
 
@@ -154,6 +173,7 @@ def copy_app(source: Path, target: Path):
             shutil.copytree(item, staging / name, ignore=skip)
         elif item.is_file():
             shutil.copy2(item, staging / name)
+    unblock(staging)
     if target.exists():
         try:
             target.rename(old)

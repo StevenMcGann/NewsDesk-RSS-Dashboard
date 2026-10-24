@@ -133,7 +133,14 @@ User data in `%APPDATA%\NewsDesk`:
 - The uninstaller is a fixed ASCII script that uses `%~dp0` and no literal paths.
   - `chcp 65001`, the usual way to put non-ASCII paths in a batch file, breaks `set /p` prompts.
   - The installer records its shortcuts in `install.json`. The uninstaller deletes only `NewsDesk.lnk` files listed there, and refuses to run where that file is missing, such as in the unzipped download.
-- A real setup.exe (Inno Setup: uninstall entry under Settings > Apps) is a possible later step.
+- **Mark of the Web.**
+  - Explorer marks every file unzipped from a downloaded zip with a `Zone.Identifier` stream, which is why `Install NewsDesk.bat` triggers "The publisher could not be verified".
+  - Windows copies that stream along with each file. The installer therefore deletes it from the installed copy, as Unblock-File does, so the shortcuts don't prompt on every start.
+  - The download itself is left untouched.
+- **Why the publisher shows as Unknown.** Batch files can't carry an Authenticode signature, so the first prompt can only be avoided by unblocking the zip.
+- **The fix for that is a later step:** a signed `setup.exe` built with Inno Setup, which would also add an uninstall entry under Settings > Apps.
+  - Signing needs a code-signing certificate tied to a verified identity.
+  - SmartScreen may still warn until the signed file builds up download reputation.
 
 **Update check: tell the user, never act.**
 - `app/updates.py` asks `api.github.com/repos/StevenMcGann/NewsDesk-RSS-Dashboard/releases/latest` at most once a day. The first check is 30 s after startup; then it re-checks hourly whether the day has passed. It goes through the normal fetcher, so it works behind proxies.
