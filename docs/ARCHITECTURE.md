@@ -108,6 +108,8 @@ User data in `%APPDATA%\NewsDesk`:
 - urllib reads the proxy from the Windows registry. It cannot use a PAC script or log in to an NTLM/Kerberos proxy.
 - When urllib fails at the network level, or the proxy returns HTTP 407, the request is retried through a long-lived `powershell.exe` worker that uses .NET `WebRequest` with the system proxy and default credentials. That is the same path Edge uses. After that success, the Windows path becomes the preferred one for every site.
 - An HTTP 403 is also retried once through the Windows path. Some CDNs refuse Python's TLS handshake but accept Windows' (cisa.gov's Akamai does this). If the retry works, only that site switches to the Windows path.
+- The Windows path turns keep-alive off, so every request says `Connection: close`, as urllib's do. With keep-alive on, .NET sends `Connection: Keep-Alive` only on its first request to a site and no Connection header after that. cisa.gov's Akamai answered every later request with 403, so the feed failed whenever the same worker had already contacted the site (issue #2). `TransportTest` checks the header on repeated requests.
+- When both paths fail, the error reports both results instead of only the first. A CDN's `X-Reference-Error` value is appended as "(reference …)", which the site's operators can look up. It's dropped unless it looks like an ID, because it comes from the server.
 - **Settings > Connection** can force either path.
 - Default credentials go only to the proxy, never to the target site.
 
@@ -239,5 +241,5 @@ When updating, change both; `tests/test_dependencies.py` checks that they match 
 |---|---|
 | Nothing opens | `app.log` in the data folder. A message box shows startup errors. |
 | Every feed fails | **Settings > Connection > Test connection**, or `python\python.exe app\launcher.py --diagnose` from the app folder. |
-| One feed fails | Its sidebar row has a red dot. Click "N feeds failed" in the status bar to see each error. A 403 that survives the automatic Windows retry means the site refuses non-browser clients outright. |
+| One feed fails | Its sidebar row has a red dot. Click "N feeds failed" in the status bar to see each error. "From both download methods" means the automatic Windows retry was refused too: the site refuses non-browser clients, at least from that network. Pass on any "(reference …)" to the site's operators. |
 | `pythonw.exe` blocked by AppLocker/WDAC | Run the app from a folder the policy allows, or ask the machine's administrator to allow the signed python.org runtime. |

@@ -184,6 +184,65 @@ class TransportTest(unittest.TestCase):
                 srv.shutdown()
                 srv.server_close()
 
+    def test_every_request_says_connection_close(self):
+        # With keep-alive, .NET sent no Connection header after its first request to a site,
+        # and cisa.gov's Akamai refuses exactly those (issue #2). An HTTP/1.1 server is what
+        # makes .NET drop the header.
+        seen = []
+
+        class Recorder(_Quiet):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                seen.append(self.headers.get("Connection"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/rss+xml")
+                self.send_header("Content-Length", "6")
+                self.end_headers()
+                self.wfile.write(b"<rss/>")
+
+        srv = _serve(Recorder)
+        url = f"http://127.0.0.1:{srv.server_address[1]}/feed"
+        try:
+            f = Fetcher()
+            try:
+                for name, get in self.methods(f):
+                    seen.clear()
+                    for _ in range(3):  # the same worker each time, as within one refresh
+                        get(url)
+                    self.assertEqual([(c or "").lower() for c in seen], ["close"] * 3, name)
+            finally:
+                f.close()
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_refusal_carries_the_sites_reference(self):
+        class Refuse(_Quiet):
+            def do_GET(self):
+                self.send_response(403)
+                self.send_header("X-Reference-Error", "18.d15ec817.1792870186.57d3bca5")
+                self.send_header("Content-Length", "13")
+                self.end_headers()
+                self.wfile.write(b"Access Denied")
+
+        srv = _serve(Refuse)
+        url = f"http://127.0.0.1:{srv.server_address[1]}/feed"
+        try:
+            f = Fetcher()
+            try:
+                for name, get in self.methods(f):
+                    with self.assertRaises(FetchError) as caught:
+                        get(url)
+                    self.assertEqual(caught.exception.status, 403, name)
+                    self.assertEqual(str(caught.exception),
+                                     "HTTP 403: the site refused access (reference 18.d15ec817.1792870186.57d3bca5)", name)
+            finally:
+                f.close()
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 class FallbackTest(unittest.TestCase):
     def setUp(self):
@@ -230,10 +289,29 @@ class FallbackTest(unittest.TestCase):
         self.assertEqual(self.f.get("https://other.test/feed").via, "python")
         self.assertEqual(self.calls, ["python", "windows", "windows", "python"])
 
-    def test_both_fail_reports_first_error(self):
+    def test_both_fail_reports_both_errors(self):
         self.stub(FetchError("python says no", network=True), FetchError("windows says no", network=True))
-        with self.assertRaisesRegex(FetchError, "python says no"):
+        with self.assertRaises(FetchError) as caught:
             self.f.get("https://x.test/")
+        self.assertEqual(str(caught.exception), "Python: python says no. Windows: windows says no")
+        self.assertTrue(caught.exception.network)
+        self.assertIsNone(caught.exception.status)
+
+    def test_same_refusal_from_both_is_one_message_with_the_latest_reference(self):
+        self.stub(FetchError("HTTP 403: the site refused access", 403, reference="18.aaa"),
+                  FetchError("HTTP 403: the site refused access", 403, reference="18.bbb"))
+        with self.assertRaises(FetchError) as caught:
+            self.f.get("https://www.cisa.gov/all.xml")
+        self.assertEqual(str(caught.exception),
+                         "HTTP 403: the site refused access, from both download methods (reference 18.bbb)")
+        self.assertEqual(caught.exception.status, 403)  # still counts as a refusal (tools/check_feeds.py)
+        self.assertFalse(caught.exception.network)
+
+    def test_reference_must_look_like_an_id(self):
+        for junk in ("<b>hi</b>", "a b", "x" * 81, "18.a\r\nInjected: yes"):
+            e = FetchError("HTTP 403: the site refused access", 403, reference=junk)
+            self.assertIsNone(e.reference, junk)
+            self.assertEqual(str(e), "HTTP 403: the site refused access")
 
     def test_forced_modes(self):
         self.stub(None, None)

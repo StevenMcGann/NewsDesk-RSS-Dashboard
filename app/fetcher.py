@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import queue
+import re
 import socket
 import ssl
 import subprocess
@@ -41,10 +42,24 @@ TEST_URL = "https://feeds.arstechnica.com/arstechnica/index"
 
 
 class FetchError(Exception):
-    def __init__(self, message, status=None, network=False):
-        super().__init__(message)
+    def __init__(self, message, status=None, network=False, reference=None):
+        if reference and not re.fullmatch(r"[\w.-]{1,80}", reference):
+            reference = None  # it comes from the server, so only something that looks like an ID
+        super().__init__(f"{message} (reference {reference})" if reference else message)
+        self.reason = message
         self.status = status
         self.network = network  # couldn't reach the server at all (worth retrying another way)
+        self.reference = reference  # Akamai's X-Reference-Error, which the site's operators can look up
+
+
+def _both_failed(first: FetchError, second: FetchError, names) -> FetchError:
+    """One error that reports both download methods, not just the first."""
+    if first.status is not None and first.status == second.status:
+        message = f"{first.reason}, from both download methods"
+    else:
+        message = f"{names[0]}: {first.reason}. {names[1]}: {second.reason}"
+    return FetchError(message, first.status if first.status == second.status else None,
+                      first.network and second.network, second.reference or first.reference)
 
 
 @dataclass
@@ -136,8 +151,10 @@ class Fetcher:
             return self.windows.get(*args)
         host = urllib.parse.urlsplit(url).hostname
         methods = [self.get_python, self.windows.get]
+        names = ["Python", "Windows"]
         if self._prefer_windows or host in self._windows_hosts:
             methods.reverse()
+            names.reverse()
         try:
             return methods[0](*args)
         except FetchError as first:
@@ -147,8 +164,9 @@ class Fetcher:
                 raise
             try:
                 result = methods[1](*args)
-            except FetchError:
-                raise first from None
+            except FetchError as second:
+                log.info("%s and %s both failed for %s: %s / %s", *names, host, first, second)
+                raise _both_failed(first, second, names) from None
             if first.network:
                 self._prefer_windows = result.via == "windows"
             elif result.via == "windows":
@@ -184,7 +202,7 @@ class Fetcher:
                 return Response(304, url, b"", "", etag, last_modified, "python")
             if e.code == 407:
                 raise FetchError("The proxy asked for a login (HTTP 407)", 407, network=True) from None
-            raise FetchError(_http_message(e.code), e.code) from None
+            raise FetchError(_http_message(e.code), e.code, reference=e.headers.get("X-Reference-Error")) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             reason = getattr(e, "reason", None) or e
             raise FetchError(f"Could not connect: {reason}", network=True) from None
@@ -288,6 +306,10 @@ while ($true) {
     $r = [Net.WebRequest]::Create($req.url)
     $r.AllowAutoRedirect = -not $req.manual_redirects
     $r.Proxy = $proxy
+    # With keep-alive on, .NET sends "Connection: Keep-Alive" only on its first request to
+    # a site and no Connection header after that, which cisa.gov's Akamai answers with 403.
+    # "Connection: close" on every request is consistent, and what urllib sends too.
+    $r.KeepAlive = $false
     $r.UserAgent = $req.ua
     $r.Accept = $req.accept
     $r.Timeout = __TIMEOUT__
@@ -307,6 +329,7 @@ while ($true) {
     $out.etag = $resp.Headers['ETag']
     $out.lm = $resp.Headers['Last-Modified']
     $out.location = $resp.Headers['Location']
+    $out.ref = $resp.Headers['X-Reference-Error']
     $stream = $resp.GetResponseStream()
     $ms = New-Object IO.MemoryStream
     $buf = New-Object byte[] 65536
@@ -404,7 +427,7 @@ class PowerShellPool:
         if status == 304:
             return Response(304, url, b"", "", etag, last_modified, "windows")
         if status >= 400:
-            raise FetchError(_http_message(status), status, network=status == 407)
+            raise FetchError(_http_message(status), status, network=status == 407, reference=result.get("ref"))
         body = base64.b64decode(result.get("body") or "")
         return Response(status, result.get("url") or current, body, result.get("ct") or "",
                         result.get("etag"), result.get("lm"), "windows")
