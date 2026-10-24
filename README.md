@@ -6,9 +6,7 @@
 [![CodeQL](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml)
 [![Dependency check](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml)
 
-NewsDesk is a feed reader for Windows that looks and works like
-[RSS Dashboard for Obsidian](https://github.com/amatya-aditya/obsidian-rss-dashboard),
-with no Obsidian required. Unzip it, double-click, and read. Nothing gets installed, and
+NewsDesk is a free open-source feed reader for Windows, with NO ads, trackers, or pop-ups. Unzip it, double-click, and read. Nothing gets installed, and
 everything stays on your computer.
 
 > **Credit.** The layout and workflow are modeled on
