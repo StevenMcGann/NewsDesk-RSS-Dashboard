@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Starter feeds, offered with one click on first run (or Import / Export >
+  Add starter feeds). Edit freely: each <outline> with an xmlUrl is a feed;
+  an <outline> that wraps others is a folder.
+-->
+<opml version="2.0">
+  <head>
+    <title>Starter feeds</title>
+  </head>
+  <body>
+    <outline text="News">
+      <outline type="rss" text="NPR News" xmlUrl="https://feeds.npr.org/1001/rss.xml" htmlUrl="https://www.npr.org/"/>
+      <outline type="rss" text="BBC News - World" xmlUrl="https://feeds.bbci.co.uk/news/world/rss.xml" htmlUrl="https://www.bbc.co.uk/news/world"/>
+      <outline type="rss" text="Bloomberg Markets" xmlUrl="https://feeds.bloomberg.com/markets/news.rss" htmlUrl="https://www.bloomberg.com/markets"/>
+    </outline>
+    <outline text="Tech">
+      <outline type="rss" text="Ars Technica" xmlUrl="https://feeds.arstechnica.com/arstechnica/index" htmlUrl="https://arstechnica.com/"/>
+      <outline type="rss" text="The Verge" xmlUrl="https://www.theverge.com/rss/index.xml" htmlUrl="https://www.theverge.com/"/>
+      <outline type="rss" text="WIRED" xmlUrl="https://www.wired.com/feed/rss" htmlUrl="https://www.wired.com/"/>
+    </outline>
+    <outline text="Security">
+      <outline type="rss" text="Microsoft Security Blog" xmlUrl="https://www.microsoft.com/en-us/security/blog/feed/" htmlUrl="https://www.microsoft.com/en-us/security/blog/"/>
+      <outline type="rss" text="All CISA Advisories" xmlUrl="https://www.cisa.gov/cybersecurity-advisories/all.xml" htmlUrl="https://www.cisa.gov/news-events/cybersecurity-advisories"/>
+      <outline type="rss" text="BleepingComputer" xmlUrl="https://www.bleepingcomputer.com/feed/" htmlUrl="https://www.bleepingcomputer.com/"/>
+      <outline type="rss" text="Krebs on Security" xmlUrl="https://krebsonsecurity.com/feed/" htmlUrl="https://krebsonsecurity.com/"/>
+    </outline>
+    <outline text="Science">
+      <outline type="rss" text="NASA News Releases" xmlUrl="https://www.nasa.gov/news-release/feed/" htmlUrl="https://www.nasa.gov/news/"/>
+      <outline type="rss" text="New Scientist" xmlUrl="https://www.newscientist.com/feed/home/" htmlUrl="https://www.newscientist.com/"/>
+    </outline>
+  </body>
+</opml>

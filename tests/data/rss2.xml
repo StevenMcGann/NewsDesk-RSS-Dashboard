@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Example News &amp; Views</title>
+    <link>https://news.example.com/</link>
+    <description>Sample RSS 2.0 feed</description>
+    <item>
+      <title>Thumbnail story</title>
+      <link>https://news.example.com/a/1</link>
+      <guid isPermaLink="false">story-1</guid>
+      <pubDate>Mon, 05 Oct 2026 14:30:00 GMT</pubDate>
+      <dc:creator>Ada Writer</dc:creator>
+      <description>Short summary for the first story.</description>
+      <media:thumbnail url="https://cdn.example.com/thumb1.jpg" width="640" height="400"/>
+    </item>
+    <item>
+      <title>Inline image story</title>
+      <link>https://news.example.com/a/2</link>
+      <guid>https://news.example.com/a/2</guid>
+      <pubDate>Tue, 06 Oct 2026 09:00:00 GMT</pubDate>
+      <description><![CDATA[<p><img src="https://feeds.feedburner.com/~r/x/~4/pixel.gif" width="1" height="1"> Lead paragraph.</p>]]></description>
+      <content:encoded><![CDATA[<p><img src="https://feeds.feedburner.com/~ff/x?d=yIl2AUoC8zA" border="0"></p><p><img src="/images/photo2.png" alt="Photo"></p><p>Full body text of the second story with <b>bold</b> words.</p><script>alert(1)</script>]]></content:encoded>
+    </item>
+    <item>
+      <title>No guid story</title>
+      <link>https://news.example.com/a/3</link>
+      <pubDate>Wed, 07 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Third.</description>
+      <enclosure url="https://cdn.example.com/three.jpg" type="image/jpeg" length="1234"/>
+    </item>
+    <item>
+      <title>Neither guid nor link</title>
+      <pubDate>Mon, 01 Jan 2125 10:00:00 GMT</pubDate>
+      <description>A story from the future with a long description. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</description>
+    </item>
+  </channel>
+</rss>

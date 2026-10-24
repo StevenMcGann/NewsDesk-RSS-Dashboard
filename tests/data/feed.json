@@ -1,0 +1,23 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "JSON Example",
+  "home_page_url": "https://json.example.com/",
+  "feed_url": "https://json.example.com/feed.json",
+  "items": [
+    {
+      "id": "j1",
+      "url": "https://json.example.com/j1",
+      "title": "JSON with HTML",
+      "content_html": "<p>Hello <img src=\"https://json.example.com/hero.jpg\"></p>",
+      "date_published": "2026-10-01T08:00:00Z",
+      "authors": [{"name": "Linus"}]
+    },
+    {
+      "id": "j2",
+      "url": "/j2",
+      "content_text": "Para one.\n\nPara <two>.",
+      "image": "https://json.example.com/j2.png",
+      "date_published": "2026-10-02T08:00:00-05:00"
+    }
+  ]
+}

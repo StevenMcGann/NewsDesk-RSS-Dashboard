@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Broken & Proud</title>
+    <link>https://broken.example.com/</link>
+    <item>
+      <title>Unescaped & ampersand</title>
+      <link>https://broken.example.com/1</link>
+      <description>Text with <b>unclosed bold</description>
+    </item>
+    <item>
+      <title>Second</title>
+      <link>https://broken.example.com/2</link>
+    </item>
+  </channel>
+</rss>

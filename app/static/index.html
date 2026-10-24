@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="api-token" content="__API_TOKEN__">
+  <title>NewsDesk RSS Dashboard</title>
+  <link rel="icon" href="favicon.svg?v=__ICON_VERSION__" type="image/svg+xml">
+  <link rel="icon" href="icon-256.png?v=__ICON_VERSION__" type="image/png" sizes="256x256">
+  <link rel="stylesheet" href="app.css">
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/Readability.js"></script>
+  <script src="vendor/turndown.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Feeds">
+      <div class="sb-brand">
+        <img src="favicon.svg?v=__ICON_VERSION__" width="26" height="26" alt="">
+        <span>NewsDesk</span>
+      </div>
+      <div class="sb-toolbar" id="sb-toolbar"></div>
+      <nav class="sb-scroll" id="sb-scroll">
+        <div class="sb-views" id="sb-views"></div>
+        <div class="sb-section" id="sb-root" title="Drop here to move to the top level">Feeds</div>
+        <div class="tree" id="tree"></div>
+      </nav>
+      <div class="sb-status" id="sb-status"></div>
+    </aside>
+    <div class="split" id="split-sidebar" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <main class="main" id="main">
+      <header class="main-head" id="main-head"></header>
+      <div class="banner hidden" id="banner"></div>
+      <div class="articles-scroll" id="articles-scroll">
+        <section class="articles" id="articles" aria-label="Articles"></section>
+        <footer class="pager" id="pager"></footer>
+      </div>
+    </main>
+    <div class="split hidden" id="split-reader" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <section class="reader hidden" id="reader" aria-label="Reader"></section>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="offline hidden" id="offline">
+    <div class="offline-box">
+      <strong>NewsDesk has stopped</strong>
+      <p>Double-click <b>Start NewsDesk</b> to open it again.</p>
+    </div>
+  </div>
+</body>
+</html>

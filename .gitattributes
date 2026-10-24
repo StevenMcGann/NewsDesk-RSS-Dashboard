@@ -1,0 +1,5 @@
+# Store text with LF in the repo; check out with the platform's line endings.
+* text=auto
+# cmd.exe can misparse batch files with Unix line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf

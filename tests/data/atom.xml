@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://blog.example.org/">
+  <title type="html">Example &lt;em&gt;Blog&lt;/em&gt;</title>
+  <link href="https://blog.example.org/" rel="alternate"/>
+  <link href="https://blog.example.org/atom.xml" rel="self"/>
+  <icon>/favicon.png</icon>
+  <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+  <updated>2026-10-10T18:30:02Z</updated>
+  <entry>
+    <title>Relative links</title>
+    <link href="posts/relative"/>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <updated>2026-10-10T18:30:02Z</updated>
+    <author><name>Grace</name></author>
+    <summary>The summary.</summary>
+    <content type="html">&lt;p&gt;The &lt;a href="/elsewhere"&gt;full&lt;/a&gt; content.&lt;/p&gt;</content>
+  </entry>
+</feed>
