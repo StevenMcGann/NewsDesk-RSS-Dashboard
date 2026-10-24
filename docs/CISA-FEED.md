@@ -147,6 +147,40 @@ Interpret the comparison cautiously:
 Keep issue #2 open until a change is verified in the integrated application on
 the affected PC. Development-network success alone is insufficient.
 
+## Work-PC comparison: the header profile changes the outcome
+
+The reporter posted the comparison at
+[`2026-10-24T23:10:57.805588Z`](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/issues/2#issuecomment-6390744098).
+It confirms version 1.0.5, Python 3.14.8, and downloader/config hashes matching
+the released archive. Results from the same run:
+
+| Request | Result |
+|---|---|
+| COM, original probe headers, before comparison | HTTP 200, valid RSS, 30 items |
+| Native WinHTTP, app headers, automatic proxy discovery | HTTP 403 |
+| COM, app headers, system-resolved direct route | HTTP 403 |
+| Native WinHTTP, original probe headers, automatic proxy discovery | HTTP 200, valid RSS, 30 items |
+| Native WinHTTP, original probe headers, system-resolved direct route | HTTP 200, valid RSS, 30 items |
+| COM, original probe headers, after comparison | HTTP 200, valid RSS, 30 items |
+
+The native client therefore works on the affected PC when given the original
+probe's header profile. Changing proxy discovery is unnecessary in this run.
+The comparison changed `Accept` and `Accept-Encoding` together; it does not
+identify which individual header or CDN rule caused the refusal.
+
+Version 1.0.6 applies the proven profile to native WinHTTP feed requests for
+`https://www.cisa.gov/cybersecurity-advisories/all.xml`: the shorter XML `Accept`
+value, no `Accept-Encoding`, the same NewsDesk User-Agent and `Connection: close`.
+The existing streaming client, automatic proxy discovery, conditional headers,
+TLS verification, byte/decompression caps and deadlines remain in use. Header
+selection is repeated for each checked redirect hop. Article requests and
+other endpoints retain their existing header/compression behavior.
+
+Install 1.0.6 with Connection set to **Automatic** or **Windows (WinHTTP)**, then
+add/refresh the original CISA URL and refresh it a second time. The comparison
+verified the native request profile on the work PC; the integrated release still
+requires that final work-PC confirmation before closing issue #2.
+
 ## Standalone diagnostic
 
 Copy `tools/Test-CisaWinHttp.ps1` to that PC and run it in Windows PowerShell:

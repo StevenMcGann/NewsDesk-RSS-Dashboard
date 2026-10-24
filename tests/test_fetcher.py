@@ -441,9 +441,85 @@ class FallbackTest(unittest.TestCase):
                     self.f.get_winhttp("https://public.test/article", block_local=True)
             self.assertEqual(self.f.winhttp.request.call_count, 1)
 
+    def test_cisa_header_profile_is_scoped_and_reselected_after_redirects(self):
+        cisa = "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+        self.f.winhttp = mock.Mock(available=True)
+        self.f.winhttp.request.side_effect = [
+            (302, b"", {"Location": cisa}),
+            (302, b"", {"Location": "https://other.test/feed"}),
+            (200, b"<rss/>", {})]
+        self.f.get_winhttp("https://public.test/start")
+        headers = [call.args[2] for call in self.f.winhttp.request.call_args_list]
+        self.assertEqual(headers[0]["Accept-Encoding"], "gzip, deflate")
+        self.assertEqual(headers[1], {"Accept": fetcher.CISA_ACCEPT, "Connection": "close"})
+        self.assertEqual(headers[2], headers[0])
+        self.f.winhttp.request.side_effect = None
+        self.f.winhttp.request.return_value = (200, b"<rss/>", {})
+        for url, accept in ((cisa, fetcher.ACCEPT_PAGE),
+                            ("https://www.cisa.gov/news-events", fetcher.ACCEPT_FEED),
+                            ("https://www.cisa.gov.example.test/cybersecurity-advisories/all.xml", fetcher.ACCEPT_FEED),
+                            ("https://other.test/cybersecurity-advisories/all.xml", fetcher.ACCEPT_FEED)):
+            self.f.get_winhttp(url, accept=accept)
+            actual = self.f.winhttp.request.call_args.args[2]
+            self.assertEqual(actual["Accept"], accept, url)
+            self.assertEqual(actual["Accept-Encoding"], "gzip, deflate", url)
+
 
 @unittest.skipUnless(os.name == "nt", "WinHTTP requires Windows")
 class NativeTransportTest(unittest.TestCase):
+    def test_cisa_profile_avoids_refusal_and_preserves_conditional_get(self):
+        seen = []
+
+        class Cisa(_Quiet):
+            def do_GET(self):
+                seen.append(dict(self.headers))
+                proven_accept = "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
+                proven = (self.headers.get("Accept") == proven_accept and
+                          self.headers.get("Accept-Encoding") is None and
+                          self.headers.get("User-Agent") == fetcher.USER_AGENT and
+                          self.headers.get("Connection") == "close")
+                if not proven:
+                    self.send_response(403)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if self.headers.get("If-None-Match") == '"cisa-etag"':
+                    self.send_response(304)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("ETag", '"cisa-etag"')
+                self.send_header("Last-Modified", "Sat, 24 Oct 2026 12:00:00 GMT")
+                self.send_header("Content-Type", "application/rss+xml")
+                self.send_header("Content-Length", "6")
+                self.end_headers()
+                self.wfile.write(b"<rss/>")
+
+        srv = _serve(Cisa)
+        f = Fetcher()
+        original = f.winhttp.request
+        local = f"http://127.0.0.1:{srv.server_port}/feed"
+        cisa = "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+        # Send the actual CISA-selected headers over real WinHTTP to the local
+        # refusal server. This exercises the wire request without external I/O.
+        def route_locally(url, *args, **kwargs):
+            return original(local, *args, **kwargs)
+        try:
+            f.winhttp.request = route_locally
+            with self.assertRaises(FetchError) as caught:
+                f.get_winhttp("https://other.test/feed")
+            self.assertEqual(caught.exception.status, 403)
+            first = f.get_winhttp(cisa)
+            second = f.get_winhttp(cisa, first.etag, first.last_modified)
+            self.assertEqual((first.status, first.body), (200, b"<rss/>"))
+            self.assertEqual((second.status, second.body), (304, b""))
+            self.assertEqual(seen[-1]["If-None-Match"], '"cisa-etag"')
+            self.assertEqual(seen[-1]["If-Modified-Since"], "Sat, 24 Oct 2026 12:00:00 GMT")
+        finally:
+            f.close()
+            srv.shutdown()
+            srv.server_close()
+
     def test_conditional_headers_and_not_modified(self):
         seen = []
 

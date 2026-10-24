@@ -61,7 +61,8 @@ Keyboard: **j** and **k** for next and previous, **m** for read or unread, **s**
 - **Nothing opens.** Wait about 10 seconds, then double-click again.
 - **Feeds won't update.** Open **Settings** and click **Test connection**. Then open an
   issue on this project's GitHub page, with a screenshot of the result.
-- **CISA is refused.** Version 1.0.5 adds another Windows download method. Use
+- **CISA is refused.** Version 1.0.6 uses the CISA request headers verified on
+  the affected work PC. Use
   **Settings > Connection > Windows (WinHTTP)**, or leave **Automatic** selected
   to try WinHTTP first, with .NET and Python fallbacks. The app remembers a
   successful method for each site until it restarts.

@@ -38,7 +38,22 @@ USER_AGENT = "NewsDesk/1.0 (Windows; desktop feed reader)"
 ACCEPT_FEED = ("application/rss+xml, application/atom+xml, application/feed+json, "
                "application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8")
 ACCEPT_PAGE = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+CISA_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
 TEST_URL = "https://feeds.arstechnica.com/arstechnica/index"
+
+
+def _winhttp_headers(url, accept):
+    headers = {"Accept": accept, "Accept-Encoding": "gzip, deflate", "Connection": "close"}
+    parts = urllib.parse.urlsplit(url)
+    # The affected-PC comparison verified this profile with native WinHTTP as
+    # well as COM. The regular profile was refused by both. Scope the change to
+    # the tested feed; article pages and other publishers retain compression.
+    if (accept == ACCEPT_FEED and parts.scheme == "https" and
+            parts.hostname == "www.cisa.gov" and
+            parts.path == "/cybersecurity-advisories/all.xml" and not parts.query):
+        headers["Accept"] = CISA_ACCEPT
+        del headers["Accept-Encoding"]
+    return headers
 
 
 class FetchError(Exception):
@@ -195,17 +210,17 @@ class Fetcher:
     def get_winhttp(self, url, etag=None, last_modified=None, accept=ACCEPT_FEED, block_local=False) -> Response:
         if not self.winhttp.available:
             raise FetchError("Windows WinHTTP is not available")
-        headers = {"Accept": accept, "Accept-Encoding": "gzip, deflate", "Connection": "close"}
-        if etag:
-            headers["If-None-Match"] = etag
-        if last_modified:
-            headers["If-Modified-Since"] = last_modified
         current = check_url(url)
         with self._winhttp_slots:
             deadline = time.monotonic() + TOTAL_TIMEOUT
             for _ in range(MAX_REDIRECTS + 1):
                 if block_local and is_local_address(current):
                     raise FetchError(LOCAL_REFUSED)
+                headers = _winhttp_headers(current, accept)
+                if etag:
+                    headers["If-None-Match"] = etag
+                if last_modified:
+                    headers["If-Modified-Since"] = last_modified
                 try:
                     status, body, response_headers = self.winhttp.request(
                         current, USER_AGENT, headers, deadline=deadline, timeout=TIMEOUT, max_bytes=MAX_BYTES)
