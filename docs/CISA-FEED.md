@@ -74,6 +74,79 @@ Artifact: `NewsDesk-1.0.5.zip` on the
 [1.0.5 release](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/releases/tag/v1.0.5).
 The published release includes the final SHA-256 checksum.
 
+## Work-PC follow-up: 1.0.5 still refused
+
+At `2026-10-24T22:56:54Z`, the reporter confirmed that the updated application
+still receives HTTP 403 from **all three clients**, with reference
+`18.e518d017.1792882522.bbac835e`. Version 1.0.5 is therefore not a confirmed fix
+for the affected PC. The successful earlier COM diagnostic does not establish
+that the native streaming client is equivalent in that environment.
+
+The outgoing HTTP/1.1 requests were compared against a local development server.
+The original COM diagnostic sends a shorter `Accept` value and no
+`Accept-Encoding` header. The application also advertises JSON feeds and
+`text/xml`, and sends `Accept-Encoding: gzip, deflate`. Both identify as the same
+NewsDesk reader and send `Connection: close`. Separately, the native client uses
+WinHTTP automatic proxy discovery, whereas the COM diagnostic supplies the route
+resolved by .NET's Windows proxy API. These are differences to test, not proven
+causes of the refusal. Both clients still returned valid CISA RSS on the
+development PC during this follow-up.
+
+### One-run comparison on the affected PC
+
+Download `tools/Test-CisaComparison.ps1` and run it with the installed copy of
+NewsDesk available:
+
+```powershell
+powershell.exe -NoProfile -File .\Test-CisaComparison.ps1
+```
+
+The default location is `%LOCALAPPDATA%\Programs\NewsDesk`. For a portable or
+custom installation, specify the folder containing `app` and `python`:
+
+```powershell
+powershell.exe -NoProfile -File .\Test-CisaComparison.ps1 -NewsDeskRoot 'C:\Tools\NewsDesk'
+```
+
+Use the organization's normal script policy. The script uses NewsDesk's own
+bundled Python and installed downloader, without changing either. It makes six
+checks against the same original CISA URL, with no application-level fallback
+retries:
+
+| Check | Purpose |
+|---|---|
+| `com_original_before` | Repeat the previously successful probe now |
+| `native_installed` | Exercise the installed application's WinHTTP request |
+| `com_app_headers` | Change the COM probe to the application's headers |
+| `native_probe_headers` | Change the native request to the original probe's headers |
+| `native_probe_headers_resolved` | Also match the COM probe's resolved proxy route |
+| `com_original_after` | Check whether the baseline stayed consistent during the run |
+
+The JSON includes the app/runtime versions, downloader source hashes, individual
+UTC timestamps, HTTP statuses, sanitized reference IDs, and valid-feed/item
+counts. It omits response bodies, proxy addresses, local paths, account names,
+and browser data. Native downloads retain their streaming/decompression caps
+and deadlines. As in the original diagnostic, COM buffers the fixed public
+feed before checking its size. No certificates, credentials, Windows settings,
+application settings, or subscriptions are changed.
+
+Interpret the comparison cautiously:
+
+- If the COM baselines are valid and the COM/native results change with headers,
+  the header profile is a candidate for a targeted production change.
+- If native succeeds only after matching the resolved proxy route, investigate
+  proxy-resolution differences; do not force a direct route globally.
+- If only COM succeeds, another COM/native difference remains. A streaming
+  equivalent or a separately bounded COM transport needs further validation.
+- If both COM baselines now fail, the earlier success is not repeatable during
+  this run. That does not identify the CDN rule; preserve the new timestamps and
+  references for publisher-side investigation.
+- If the reported version or source hashes do not match the installed release,
+  first resolve the installation mismatch.
+
+Keep issue #2 open until a change is verified in the integrated application on
+the affected PC. Development-network success alone is insufficient.
+
 ## Standalone diagnostic
 
 Copy `tools/Test-CisaWinHttp.ps1` to that PC and run it in Windows PowerShell:
@@ -94,9 +167,9 @@ checked; this fixed-URL probe is not a replacement production downloader.
 
 Interpret the result:
 
-- **`valid_feed: true`:** Use version 1.0.5 with Automatic or Windows (WinHTTP)
-  selected. Verify repeated requests in the integrated app on the affected PC
-  before calling the issue fixed.
+- **`valid_feed: true`:** The COM probe worked for this request. Use the one-run
+  comparison above to determine whether the installed streaming client and its
+  headers/route work at the same time. Verify the integrated app separately.
 - **HTTP 403:** WinHTTP did not solve that environment's refusal. Further
   generic retries or guessed browser headers are not a demonstrated fix.
 - **HTTP 407:** The probe needs proxy authentication and is inconclusive about
