@@ -1,0 +1,8 @@
+name: NewsDesk CodeQL config
+
+# Bundled third-party code is tracked by the daily dependency check instead, and the
+# tests deliberately contain hostile inputs.
+paths-ignore:
+  - app/vendor
+  - app/static/vendor
+  - tests

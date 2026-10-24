@@ -2,6 +2,10 @@
 
 # NewsDesk RSS Dashboard
 
+[![Tests](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml)
+[![Dependency check](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml)
+
 NewsDesk is a feed reader for Windows that looks and works like
 [RSS Dashboard for Obsidian](https://github.com/amatya-aditya/obsidian-rss-dashboard),
 with no Obsidian required. Unzip it, double-click, and read. Nothing gets installed, and
@@ -62,7 +66,8 @@ includes, or in your default browser if Edge isn't there.
 ## Problems and ideas
 
 Open an issue on this repository. For feeds that won't update, include a screenshot of
-**Settings > Connection > Test connection**.
+**Settings > Connection > Test connection**. Security problems should be reported
+privately instead: see [SECURITY.md](SECURITY.md).
 
 ## For developers
 

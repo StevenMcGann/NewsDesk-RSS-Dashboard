@@ -1,0 +1,49 @@
+name: Dependency check
+
+on:
+  schedule:
+    - cron: "7 7 * * *"  # daily, 07:07 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Vulnerabilities and updates for bundled code
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write  # keep one tracking issue open while something needs doing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Check bundled components
+        id: check
+        run: python -B tools/check_dependencies.py --report report.md
+      - name: Open or update the tracking issue
+        if: always() && steps.check.outputs.attention == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create dependencies --color 0366d6 --description "Bundled library updates" --force
+          number=$(gh issue list --label dependencies --state open --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file report.md
+          else
+            gh issue create --title "Bundled dependencies need attention" --label dependencies --body-file report.md
+          fi
+      - name: Close the tracking issue when everything is current
+        if: steps.check.outputs.attention == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for number in $(gh issue list --label dependencies --state open --json number --jq '.[].number'); do
+            gh issue close "$number" --comment "All bundled components are current and have no known vulnerabilities."
+          done

@@ -1,0 +1,62 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 6 * * *"  # daily, 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run the tests
+        run: python -B -m unittest discover -s tests -t tests -v
+
+  daily:
+    name: Live downloads, starter feeds and portable build
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: unit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Download real feeds both ways (Python and Windows)
+        working-directory: tests
+        env:
+          RSS_LIVE_TESTS: "1"
+        run: python -B -m unittest test_fetcher.LiveTest -v
+      - name: Every starter feed still loads
+        run: python -B tools/check_feeds.py
+      - name: Build the portable zip (re-checks the bundled Python's hash and signature)
+        shell: pwsh
+        run: ./build_portable.ps1 -Test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: NewsDesk-portable
+          path: dist/NewsDesk-*.zip
+          retention-days: 7

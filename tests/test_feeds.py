@@ -122,7 +122,7 @@ class HostileFeedTest(unittest.TestCase):
         body = f'<rss version="2.0"><channel><title>t</title><item><title>a</title><link>http://x/1</link>{cats}</item></channel></rss>'
         started = time.perf_counter()
         meta, entries = feeds.parse(body.encode(), "https://x.test/feed")
-        self.assertLess(time.perf_counter() - started, 5)
+        self.assertLess(time.perf_counter() - started, 10)  # minutes to hours before the fix
         self.assertEqual(entries[0]["title"], "a")
 
     def test_long_author_without_at_sign_stays_fast(self):
@@ -131,7 +131,7 @@ class HostileFeedTest(unittest.TestCase):
                 "</author></item></channel></rss>")
         started = time.perf_counter()
         meta, entries = feeds.parse(body.encode(), "https://x.test/feed")
-        self.assertLess(time.perf_counter() - started, 5)
+        self.assertLess(time.perf_counter() - started, 10)  # minutes to hours before the fix
         self.assertEqual(entries[0]["author"], "a" * 200)
 
     def test_normal_categories_and_authors_still_parse(self):

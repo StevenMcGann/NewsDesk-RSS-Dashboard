@@ -1,0 +1,13 @@
+# Keeps the pinned GitHub Actions current. The app's own libraries are vendored, which
+# Dependabot can't see; tools/check_dependencies.py watches those instead.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14  # same two-week rule as the bundled libraries
+    groups:
+      actions:
+        patterns: ["*"]

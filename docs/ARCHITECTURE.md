@@ -64,6 +64,11 @@ build_portable.ps1        builds dist\NewsDesk-<version>.zip
 starter-feeds.opml        default feeds offered on first run
 assets\logo.svg           the logo (master); PNGs, newsdesk.ico and social-preview.png are generated from it
 tools\build_icons.py      renders the logo with headless Edge; rerun after editing logo.svg
+tools\check_feeds.py      checks that every starter feed loads (daily CI)
+tools\check_dependencies.py, dependencies.json
+                          daily vulnerability and update check of bundled components
+.github\                  workflows (ci, codeql, dependencies), CodeQL config, Dependabot config
+SECURITY.md               how to report vulnerabilities privately
 app\launcher.py           single-instance lock, starts the server and refresher, opens the window, idle shutdown
 app\server.py             HTTP server: JSON API and static UI, plus the security checks
 app\store.py              SQLite schema and every query
@@ -202,9 +207,28 @@ Feed content and web pages are untrusted.
 - The database stores only `http(s)` addresses for feeds, website links and icons. OPML imports are checked the same way, so a `javascript:` link can't reach `href` or `window.open`. The UI checks again before opening a link.
 - Responses are capped at 10 MB, and decompression at the same size.
 
+## Automated checks (GitHub Actions)
+
+| Workflow | Runs | What it does |
+|---|---|---|
+| `ci.yml` Tests | Every push and PR, plus daily at 06:23 UTC | All unit tests on Windows, with Python 3.12 and 3.14. The daily run also covers: the live download tests by both paths; `tools/check_feeds.py`, which checks that every starter feed loads; and `build_portable.ps1 -Test`, which re-checks the bundled Python's SHA-256 and signature. The built zip is kept as a 7-day artifact. |
+| `codeql.yml` CodeQL | Every push and PR, plus daily | `security-extended` queries for Python and JavaScript. Vendored code and tests are excluded (`.github/codeql/codeql-config.yml`). Results appear in the Security tab. |
+| `dependencies.yml` Dependency check | Daily at 07:07 UTC | `tools/check_dependencies.py` checks each component in `tools/dependencies.json` against [OSV](https://osv.dev) and its registry, and keeps one `dependencies` issue open while something needs doing. |
+
+How the dependency check reports:
+- **Fails** on any advisory not yet reviewed.
+- **Opens the issue** when an update has been out for at least 14 days.
+- **Lists reviewed advisories but doesn't fail on them.** A reviewed advisory is one recorded with its reason under `"reviewed"` in `dependencies.json`.
+
+Other details:
+- **Dependabot** (`.github/dependabot.yml`) keeps the pinned actions current, with the same 14-day cooldown. Every action is pinned to a commit SHA, and workflows default to read-only tokens.
+- **GitHub emails** the owner when a scheduled run fails. GitHub also disables schedules after 60 days without repository activity; it emails first, and they can be turned back on in the Actions tab.
+- **Repository settings** turned on: secret scanning with push protection, private vulnerability reporting (see `SECURITY.md`), and Dependabot alerts.
+
 ## Updating vendored code
 
-The pinned versions are in [THIRD-PARTY.md](../THIRD-PARTY.md).
+The pinned versions are in [THIRD-PARTY.md](../THIRD-PARTY.md) and `tools/dependencies.json`.
+When updating, change both; `tests/test_dependencies.py` checks that they match each other, `build_portable.ps1` and the vendored files.
 - **Python packages:** download the wheel with `pip download <pkg>==<ver> --no-deps` and copy the package folder into `app\vendor\`.
 - **JavaScript libraries:** use `npm pack <pkg>@<ver>` and copy the dist file into `app\static\vendor\`.
 - **Icons:** `app\static\icons.js` holds path data from `lucide-static`. Add an icon by copying the inner SVG markup of `icons/<name>.svg`.

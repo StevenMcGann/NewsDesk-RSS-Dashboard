@@ -1,0 +1,17 @@
+{
+  "_comment": "Bundled third-party components, checked daily by tools/check_dependencies.py. Keep in step with THIRD-PARTY.md and build_portable.ps1 (tests/test_dependencies.py enforces it).",
+  "components": [
+    {"name": "feedparser", "ecosystem": "PyPI", "package": "feedparser", "version": "6.0.14"},
+    {"name": "feedparser-sgmllib", "ecosystem": "PyPI", "package": "feedparser-sgmllib", "version": "2.1.0"},
+    {"name": "DOMPurify", "ecosystem": "npm", "package": "dompurify", "version": "3.4.16",
+     "reviewed": {
+       "GHSA-c6gr-qvv4-5v3f": "Needs PARSER_MEDIA_TYPE application/xhtml+xml; NewsDesk uses the default HTML parser and forbids svg/math (reader.js).",
+       "GHSA-cg2g-xh64-v4q7": "Needs SAFE_FOR_TEMPLATES with a DOM output mode; NewsDesk uses neither, only sanitize() to a string.",
+       "GHSA-mrv2-3pqr-j5jr": "Needs IN_PLACE with hooks; NewsDesk registers no hooks and doesn't use IN_PLACE."
+     }},
+    {"name": "@mozilla/readability", "ecosystem": "npm", "package": "@mozilla/readability", "version": "0.6.0"},
+    {"name": "Turndown", "ecosystem": "npm", "package": "turndown", "version": "7.2.4"},
+    {"name": "Lucide icons", "ecosystem": "npm", "package": "lucide-static", "version": "1.54.0"},
+    {"name": "Python (embeddable, bundled in the zip)", "ecosystem": "python.org", "package": "python", "version": "3.14.8"}
+  ]
+}
