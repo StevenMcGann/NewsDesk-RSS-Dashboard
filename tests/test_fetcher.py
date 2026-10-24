@@ -1,8 +1,13 @@
 import gzip
 import os
+import threading
+import time
 import unittest
+import urllib.parse
 import urllib.request
 import zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 import _path  # noqa: F401
 
@@ -80,6 +85,104 @@ class LocalAddressTest(unittest.TestCase):
                     f.get_python(url)
         finally:
             f.close()
+
+
+class _Quiet(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+class _Trickle(_Quiet):
+    """Sends a byte every quarter second, never finishing within any sane time."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Length", "100000")
+        self.end_headers()
+        try:
+            for _ in range(400):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.25)
+        except OSError:
+            pass
+
+
+def _serve(handler):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+class TransportTest(unittest.TestCase):
+    """Real HTTP against local servers (security review findings 5 and 7)."""
+
+    def methods(self, f):
+        yield "python", f.get_python
+        if f.windows.available:
+            yield "windows", f.windows.get
+
+    def test_total_deadline_stops_a_trickling_response(self):
+        srv = _serve(_Trickle)
+        url = f"http://127.0.0.1:{srv.server_address[1]}/feed"
+        try:
+            with mock.patch.object(fetcher, "TOTAL_TIMEOUT", 1.5):
+                f = Fetcher()
+                try:
+                    for name, get in self.methods(f):
+                        started = time.monotonic()
+                        with self.assertRaisesRegex(FetchError, "too long") as caught:
+                            get(url)
+                        self.assertFalse(caught.exception.network, name)  # no retry the other way
+                        self.assertLess(time.monotonic() - started, 8, name)
+                finally:
+                    f.close()
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_article_redirect_to_blocked_address_is_never_requested(self):
+        hits = {"blocked": 0}
+
+        class Blocked(_Quiet):
+            def do_GET(self):
+                hits["blocked"] += 1
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"secret")
+
+        blocked = _serve(Blocked)
+        blocked_port = blocked.server_address[1]
+
+        class Redirect(_Quiet):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{blocked_port}/admin")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        start = _serve(Redirect)
+        url = f"http://127.0.0.1:{start.server_address[1]}/article"
+        # Treat only the second server as "this computer" so the first one can be reached.
+        fake_local = lambda u: urllib.parse.urlsplit(u).port == blocked_port  # noqa: E731
+        try:
+            with mock.patch.object(fetcher, "is_local_address", fake_local):
+                f = Fetcher()
+                try:
+                    for name, get in self.methods(f):
+                        with self.assertRaisesRegex(FetchError, "this computer"):
+                            get(url, accept=fetcher.ACCEPT_PAGE, block_local=True)
+                        self.assertEqual(hits["blocked"], 0, name)
+                    # Feeds the user adds may still redirect anywhere.
+                    self.assertEqual(f.get_python(url).body, b"secret")
+                finally:
+                    f.close()
+        finally:
+            for srv in (start, blocked):
+                srv.shutdown()
+                srv.server_close()
 
 
 class FallbackTest(unittest.TestCase):

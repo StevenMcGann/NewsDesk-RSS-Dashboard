@@ -15,7 +15,8 @@ const refs = {};
 const PURIFY = {
   FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option', 'iframe', 'frame', 'frameset',
     'object', 'embed', 'link', 'meta', 'base', 'noscript', 'template', 'dialog', 'svg', 'math'],
-  FORBID_ATTR: ['style', 'class', 'id', 'autoplay', 'name'],
+  // "background" (legacy table/cell images) would load even with "Hide images" on.
+  FORBID_ATTR: ['style', 'class', 'id', 'autoplay', 'name', 'background'],
   ALLOW_DATA_ATTR: false,
 };
 

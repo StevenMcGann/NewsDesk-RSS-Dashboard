@@ -1,5 +1,9 @@
+import io
+import tempfile
 import time
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from _path import sample
 
@@ -89,6 +93,54 @@ class OtherFormatsTest(unittest.TestCase):
     def test_html_page_is_not_a_feed(self):
         with self.assertRaises(feeds.FeedError):
             feeds.parse(sample("page.html"), "https://news.example.com/", "text/html")
+
+
+class HostileFeedTest(unittest.TestCase):
+    """Inputs from the 2026-10-24 security review (findings 1-3)."""
+
+    def test_body_is_never_opened_as_a_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.xml"
+            local.write_bytes(sample("rss2.xml"))
+            with self.assertRaises(feeds.FeedError):  # the path itself isn't a feed
+                feeds.parse(str(local).encode(), "https://attacker.example/feed")
+        opened = []
+        real_open = open
+
+        def spy(file, *args, **kwargs):
+            opened.append(file)
+            return real_open(file, *args, **kwargs)
+
+        with mock.patch("builtins.open", spy):
+            for body in (b"\\\\attacker.invalid\\share\\x.xml", b"C:\\Windows\\win.ini", b"\\\\.\\NUL"):
+                with self.assertRaises(feeds.FeedError):
+                    feeds.parse(body, "https://attacker.example/feed")
+        self.assertEqual(opened, [])
+
+    def test_many_distinct_categories_stay_fast(self):
+        cats = "".join(f"<category>c{i}</category>" for i in range(200_000))
+        body = f'<rss version="2.0"><channel><title>t</title><item><title>a</title><link>http://x/1</link>{cats}</item></channel></rss>'
+        started = time.perf_counter()
+        meta, entries = feeds.parse(body.encode(), "https://x.test/feed")
+        self.assertLess(time.perf_counter() - started, 5)
+        self.assertEqual(entries[0]["title"], "a")
+
+    def test_long_author_without_at_sign_stays_fast(self):
+        body = ('<rss version="2.0"><channel><title>t</title><managingEditor>' + "b" * 1_000_000 +
+                '</managingEditor><item><title>a</title><link>http://x/1</link><author>' + "a" * 1_000_000 +
+                "</author></item></channel></rss>")
+        started = time.perf_counter()
+        meta, entries = feeds.parse(body.encode(), "https://x.test/feed")
+        self.assertLess(time.perf_counter() - started, 5)
+        self.assertEqual(entries[0]["author"], "a" * 200)
+
+    def test_normal_categories_and_authors_still_parse(self):
+        import feedparser
+        d = feedparser.parse(io.BytesIO(b'<rss version="2.0"><channel><item><title>x</title>'
+                                        b'<author>Ann (ann@example.com)</author><category>One</category>'
+                                        b'<category>One</category><category>Two</category></item></channel></rss>'))
+        self.assertEqual([t["term"] for t in d.entries[0].tags], ["One", "Two"])
+        self.assertEqual(d.entries[0].author_detail.get("email"), "ann@example.com")
 
 
 class PagesTest(unittest.TestCase):

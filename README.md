@@ -50,11 +50,14 @@ includes, or in your default browser if Edge isn't there.
 ## Privacy
 
 - The app runs a small server that only your own computer can reach.
-- It contacts the feeds and websites you add, plus GitHub once a day to see whether a
-  newer NewsDesk has been released. You can turn that check off in
-  **Settings > Help**. Updates are never downloaded or installed automatically.
-- Your feeds, articles and settings live in `%APPDATA%\NewsDesk`.
-- Nothing is sent anywhere else, and there are no accounts, ads or tracking.
+- It downloads the feeds you add, plus the full article from the website when you ask.
+- Like any web page, articles can show images and media hosted on other sites, and those
+  sites see the request. Turn on **Settings > Hide images from websites** to block them.
+- Once a day it asks GitHub whether a newer NewsDesk has been released. You can turn that
+  off in **Settings > Help**. Updates are never downloaded or installed automatically.
+- **Test connection** in Settings downloads one test feed, from arstechnica.com.
+- Your feeds, articles and settings live in `%APPDATA%\NewsDesk`. NewsDesk itself sends
+  your data nowhere, and there are no accounts, ads or tracking.
 
 ## Problems and ideas
 

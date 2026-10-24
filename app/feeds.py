@@ -3,6 +3,7 @@ import calendar
 import codecs
 import hashlib
 import html
+import io
 import json
 import re
 import time
@@ -11,9 +12,43 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 import feedparser
+from feedparser import mixin as _feedparser_mixin
 
 MAX_ENTRIES = 300
 SNIPPET_CHARS = 300
+MAX_TAGS = 100            # categories/keywords kept per entry or feed
+MAX_AUTHOR_CHARS = 1000   # author text examined by feedparser's email regex
+
+
+def _harden_feedparser():
+    """Bound two feedparser paths whose cost grows with the square of feed-controlled input.
+
+    The vendored files stay unmodified; these wrappers are applied at import.
+    - _add_tag deduplicates by scanning every earlier tag, so 100,000 distinct
+      <category> elements cost ~5 billion comparisons. Stop collecting at MAX_TAGS.
+    - _sync_author_detail runs an unanchored, greedy email regex over the author
+      text, which is quadratic for a long run of letters without "@".
+    """
+    cls = _feedparser_mixin._FeedParserMixin
+    add_tag, sync_author = cls._add_tag, cls._sync_author_detail
+
+    def _add_tag(self, term, scheme, label):
+        if len(self._get_context().get("tags", ())) < MAX_TAGS:
+            add_tag(self, term, scheme, label)
+        else:
+            self._get_context().setdefault("tags", [])
+
+    def _sync_author_detail(self, key="author"):
+        context = self._get_context()
+        value = context.get(key)
+        if isinstance(value, str) and len(value) > MAX_AUTHOR_CHARS:
+            context[key] = value[:MAX_AUTHOR_CHARS]
+        return sync_author(self, key)
+
+    cls._add_tag, cls._sync_author_detail = _add_tag, _sync_author_detail
+
+
+_harden_feedparser()
 FEED_TYPES = ("application/rss+xml", "application/atom+xml", "application/feed+json",
               "application/rdf+xml", "application/xml", "text/xml")
 COMMON_FEED_PATHS = ("/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml")
@@ -28,7 +63,9 @@ def parse(body: bytes, url: str, content_type: str = ""):
     """Return (meta, entries) or raise FeedError if the body isn't a feed."""
     if _looks_like_json(body, content_type):
         return _parse_json_feed(body, url)
-    d = feedparser.parse(body, response_headers={
+    # A stream, never raw bytes: feedparser treats a bytes argument as a file name first, so
+    # a body like b"\\\\host\\share\\x" would be opened (and Windows would log in to host).
+    d = feedparser.parse(io.BytesIO(body), response_headers={
         "content-location": url,
         "content-type": content_type or "application/xml",
     })

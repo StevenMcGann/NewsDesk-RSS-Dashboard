@@ -25,8 +25,11 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-TIMEOUT = 15
+TIMEOUT = 15         # seconds per connect or read
+TOTAL_TIMEOUT = 60   # seconds for the whole download, however slowly it trickles in
+MAX_REDIRECTS = 5
 MAX_BYTES = 10 * 1024 * 1024
+TOO_SLOW = "The site took too long to send its response"
 # Identify honestly as a feed reader. A browser-looking User-Agent paired with Python's
 # or .NET's TLS handshake looks like a disguised bot to CDNs such as Akamai, which then
 # answer 403 (cisa.gov does this).
@@ -96,6 +99,8 @@ def is_local_address(url: str) -> bool:
 
 class _Redirects(urllib.request.HTTPRedirectHandler):
     """Follow redirects only to http(s), and (for article pages) never to this computer."""
+
+    max_redirections = MAX_REDIRECTS
 
     def __init__(self, block_local: bool):
         super().__init__()
@@ -168,10 +173,9 @@ class Fetcher:
                         urllib.request.HTTPErrorProcessor()):
             opener.add_handler(handler)
         try:
+            deadline = time.monotonic() + TOTAL_TIMEOUT
             with opener.open(request, timeout=TIMEOUT) as resp:
-                raw = resp.read(MAX_BYTES + 1)
-                if len(raw) > MAX_BYTES:
-                    raise FetchError("The response is too large")
+                raw = _read_until(resp, deadline)
                 body = _decompress(raw, resp.headers.get("Content-Encoding", ""))
                 return Response(resp.status, resp.geturl(), body, resp.headers.get("Content-Type", ""),
                                 resp.headers.get("ETag"), resp.headers.get("Last-Modified"), "python")
@@ -203,6 +207,25 @@ class Fetcher:
 
     def close(self):
         self.windows.close()
+
+
+def _read_until(resp, deadline: float) -> bytes:
+    """Read the body in pieces, enforcing the size cap and a total deadline.
+
+    The socket timeout only limits each read, so a server sending a byte every few
+    seconds could otherwise hold a refresh worker almost forever.
+    """
+    chunks, size = [], 0
+    while True:
+        if time.monotonic() > deadline:
+            raise FetchError(TOO_SLOW)
+        chunk = resp.read1(65536)  # returns whatever has arrived, not a full 64 KB
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > MAX_BYTES:
+            raise FetchError("The response is too large")
+        chunks.append(chunk)
 
 
 def _decompress(raw: bytes, encoding: str) -> bytes:
@@ -260,8 +283,10 @@ while ($true) {
   if ($null -eq $line) { break }
   $req = $line | ConvertFrom-Json
   $out = @{}
+  $clock = [Diagnostics.Stopwatch]::StartNew()
   try {
     $r = [Net.WebRequest]::Create($req.url)
+    $r.AllowAutoRedirect = -not $req.manual_redirects
     $r.Proxy = $proxy
     $r.UserAgent = $req.ua
     $r.Accept = $req.accept
@@ -281,12 +306,14 @@ while ($true) {
     $out.ct = $resp.ContentType
     $out.etag = $resp.Headers['ETag']
     $out.lm = $resp.Headers['Last-Modified']
+    $out.location = $resp.Headers['Location']
     $stream = $resp.GetResponseStream()
     $ms = New-Object IO.MemoryStream
     $buf = New-Object byte[] 65536
     while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
       $ms.Write($buf, 0, $n)
       if ($ms.Length -gt $max) { throw 'The response is too large' }
+      if ($clock.Elapsed.TotalSeconds -gt __TOTAL__) { $out.too_slow = $true; throw 'too slow' }
     }
     $resp.Close()
     $out.body = [Convert]::ToBase64String($ms.ToArray())
@@ -311,7 +338,8 @@ class _Worker:
     """A long-lived powershell.exe that serves one request at a time over stdin/stdout."""
 
     def __init__(self, exe):
-        script = _PS_SCRIPT.replace("__MAX__", str(MAX_BYTES)).replace("__TIMEOUT__", str(TIMEOUT * 1000))
+        script = (_PS_SCRIPT.replace("__MAX__", str(MAX_BYTES)).replace("__TIMEOUT__", str(TIMEOUT * 1000))
+                  .replace("__TOTAL__", str(TOTAL_TIMEOUT)))
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
         try:
             self.proc = subprocess.Popen(
@@ -355,9 +383,33 @@ class PowerShellPool:
     def get(self, url, etag=None, last_modified=None, accept=ACCEPT_FEED, block_local=False) -> Response:
         if not self._exe:
             raise FetchError("Windows PowerShell is not available")
-        if block_local and is_local_address(url):
-            raise FetchError(LOCAL_REFUSED)
-        payload = {"url": url, "ua": USER_AGENT, "accept": accept, "etag": etag or "", "lm": last_modified or ""}
+        payload = {"ua": USER_AGENT, "accept": accept, "etag": etag or "", "lm": last_modified or "",
+                   # For article pages, follow redirects here so every hop is checked before
+                   # it is requested; .NET would otherwise contact the target first.
+                   "manual_redirects": block_local}
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            if block_local and is_local_address(current):
+                raise FetchError(LOCAL_REFUSED)
+            result = self._request(dict(payload, url=current))
+            status = int(result.get("status") or 0)
+            if block_local and status in (301, 302, 303, 307, 308) and result.get("location"):
+                current = urllib.parse.urljoin(current, result["location"])
+                if urllib.parse.urlsplit(current).scheme not in ("http", "https"):
+                    raise FetchError("The site redirected to an address that isn't http:// or https://")
+                continue
+            break
+        else:
+            raise FetchError("The site redirected too many times")
+        if status == 304:
+            return Response(304, url, b"", "", etag, last_modified, "windows")
+        if status >= 400:
+            raise FetchError(_http_message(status), status, network=status == 407)
+        body = base64.b64decode(result.get("body") or "")
+        return Response(status, result.get("url") or current, body, result.get("ct") or "",
+                        result.get("etag"), result.get("lm"), "windows")
+
+    def _request(self, payload: dict) -> dict:
         with self._slots:
             try:
                 worker = self._idle.get_nowait()
@@ -369,20 +421,11 @@ class PowerShellPool:
                 worker.close()
                 raise
             self._idle.put(worker)
+        if result.get("too_slow"):
+            raise FetchError(TOO_SLOW)  # not a network failure: don't retry the other way
         if result.get("error"):
             raise FetchError(f"Could not connect: {result['error']}", network=True)
-        status = int(result.get("status") or 0)
-        if status == 304:
-            return Response(304, url, b"", "", etag, last_modified, "windows")
-        if status >= 400:
-            raise FetchError(_http_message(status), status, network=status == 407)
-        final_url = result.get("url") or url
-        # .NET follows redirects itself (http/https only), so check where it ended up.
-        if block_local and final_url != url and is_local_address(final_url):
-            raise FetchError(LOCAL_REFUSED)
-        body = base64.b64decode(result.get("body") or "")
-        return Response(status, final_url, body, result.get("ct") or "",
-                        result.get("etag"), result.get("lm"), "windows")
+        return result
 
     def close(self):
         while True:

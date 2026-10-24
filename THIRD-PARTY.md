@@ -13,6 +13,8 @@ All are copied unmodified (icons: path data only) and pinned to the versions bel
 
 License texts are next to each component (`LICENSE-*.txt`).
 
+`app/feeds.py` wraps two feedparser methods at runtime, `_add_tag` and `_sync_author_detail`, to bound their cost on hostile feeds. The vendored feedparser files themselves are unchanged. See "Feed parsing" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Design credit
 
 The layout and workflow (sidebar, card, list and feed layouts, grouping, and the reader

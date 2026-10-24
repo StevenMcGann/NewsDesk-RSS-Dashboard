@@ -166,7 +166,9 @@ Feed content and web pages are untrusted.
 
 **Server:**
 - Binds to `127.0.0.1` only. On Windows it uses `SO_EXCLUSIVEADDRUSE`, so no other process can take over the port.
-- Every API call needs the per-launch token written into `index.html`, compared in constant time.
+- Every API call needs the per-launch token written into `index.html`, compared in constant time. The two exceptions:
+  - `/api/ping` reveals only the app name and version.
+  - `/api/bye` carries the token in its query string, because `navigator.sendBeacon` can't set headers.
 - Requests with a foreign `Host` or `Origin` header are refused. This blocks CSRF and DNS rebinding from other sites open in the same browser.
 - UI files are served from a list built at startup. A request path is never turned into a file-system path.
   - This matters because any web page or feed image can request UI files without the token.
@@ -174,14 +176,26 @@ Feed content and web pages are untrusted.
 - Connections that stall mid-request are dropped after 60 s.
 
 **Downloads:**
-- Only `http` and `https` are accepted, including for redirects. The urllib opener has no `ftp:`, `file:` or `data:` handlers.
-- Article pages come from feed links, so they refuse this computer's own addresses, including after redirects: loopback, `localhost`, link-local (such as `169.254.169.254`) and unspecified. Private LAN ranges stay allowed for intranet sites.
+- Only `http` and `https` are accepted, including for redirects, with at most 5 redirects. The urllib opener has no `ftp:`, `file:` or `data:` handlers.
+- Each download has a 15 s timeout per connect or read, and 60 s in total. The total limit stops a server from trickling a response to tie up a refresh worker. Both the urllib and the PowerShell paths enforce it.
+- Article pages come from feed links, so they refuse this computer's own addresses: loopback, `localhost`, link-local (such as `169.254.169.254`) and unspecified. Private LAN ranges stay allowed for intranet sites.
+  - Every redirect hop is checked *before* it is requested. On the PowerShell path that means turning off .NET's automatic redirects and following them in Python.
 - Feed addresses the user adds may be local, for example a self-hosted feed service.
+- **Accepted risk: DNS rebinding.** The local-address check resolves the hostname, and the transport then resolves it again.
+  - A hostile DNS server could answer differently the second time and steer an article download to a loopback service. Only a GET is sent, and the response only reaches this user's own reader.
+  - Pinning the checked address would mean replacing both transports' connection logic, and the PowerShell path can't be pinned at all. Recorded as finding 6 of the 2026-10-24 review.
+
+**Feed parsing:**
+- Response bodies go to feedparser as `io.BytesIO`, never as raw bytes. Given bytes, feedparser first tries to *open them as a file name*, so a body consisting of `\\host\share\x` would make Windows connect to that host (finding 1).
+- Two feedparser routines cost the square of their input size, and `feeds.py` wraps both at import (findings 2 and 3); the vendored files are unchanged.
+  - Tag deduplication scans every earlier tag, so tags are capped at 100 per entry or feed.
+  - The author email regex is unanchored and greedy, so author text is cut to 1,000 characters before it runs.
 
 **Page:**
 - The CSP allows only scripts and styles served by the app itself (`script-src 'self'`, `style-src 'self'`).
 - Frames are not allowed.
-- Feed and article HTML goes through DOMPurify, with scripts, frames, forms, `style`, `class` and `id` forbidden. It is then post-processed in an inert document, so blocked images and tracking pixels never load.
+- Feed and article HTML goes through DOMPurify, with scripts, frames, forms, `style`, `class`, `id` and `background` forbidden. It is then post-processed in an inert document, so blocked images and tracking pixels never load.
+  - `background` is the legacy table-cell image attribute. DOMPurify allows it by default, and it would have bypassed **Hide images** (finding 4).
 
 **Files and links:**
 - Markdown files are written only inside the configured save folder, with sanitized names that avoid reserved Windows names.
