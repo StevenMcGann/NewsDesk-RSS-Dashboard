@@ -25,7 +25,8 @@ def flatten(nodes, folder=""):
 
 
 def main() -> int:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "starter-feeds.opml"
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # a Windows CI console is cp1252
+    source =Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "starter-feeds.opml"
     rows, failed = [], 0
     fetcher = Fetcher()
     try:

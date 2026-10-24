@@ -82,7 +82,8 @@ def latest(component):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # advisory text can be any Unicode
+    parser =argparse.ArgumentParser()
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     components = json.loads(MANIFEST.read_text(encoding="utf-8"))["components"]
