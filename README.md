@@ -1,6 +1,4 @@
-<p align="center"><img src="assets/logo.svg" width="120" height="120" alt="NewsDesk logo"></p>
-
-# NewsDesk RSS Dashboard
+<h1 align="center"><img src="assets/social-preview.png" width="100%" alt="NewsDesk RSS Dashboard: a simple, private feed reader for Windows"></h1>
 
 [![Tests](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml)
