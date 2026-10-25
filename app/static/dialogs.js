@@ -549,7 +549,7 @@ export function settings() {
         row('Quit NewsDesk', 'Stop the app and background checks for all windows.', quit),
         row('Keyboard shortcuts', null, shortcutsBtn),
         row('Your data', app.data_dir, button('Open folder', () => api.post('/api/open-folder', { which: 'data' }).catch((e) => toast(e.message, { error: true })), 'small')),
-        row('Check for new versions', 'Daily checks only notify you. Downloads and installation start when you choose Update.',
+        row('Check for new versions', 'Daily checks only notify you. Update opens release notes before you choose to download and install.',
           toggle('check_updates', () => renderUpdate())),
         el('div', { class: 'setting-row' },
           el('div', { class: 'what' }, el('div', {}, `Version ${app.version}`), updateStatus),
