@@ -40,9 +40,11 @@ def release(version="99.0.0", body="## Changes\n- Works offline\n<img src='https
             "html_url": f"https://github.com/{config.GITHUB_REPO}/releases/tag/v{version}", "assets": assets}
 
 
-def make_package(path, version="99.0.0", extra=None):
+def make_package(path, version="99.0.0", extra=None, omit=()):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name in package.REQUIRED:
+            if name in omit:
+                continue
             data = f'VERSION = "{version}"\n' if name == "app/config.py" else "fixture"
             archive.writestr("NewsDesk/" + name, data)
         if extra:
@@ -106,6 +108,9 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(package.package_version(extracted), "99.0.0")
         with self.assertRaises(ValueError):
             package.extract_package(self.archive, self.root / "wrong", "99.0.1")
+        make_package(self.archive, omit=("app/static/app.js",))
+        with self.assertRaisesRegex(ValueError, "structure"):
+            package.extract_package(self.archive, self.root / "missing-ui", "99.0.0")
 
     @unittest.skipUnless(os.name == "nt", "Windows destination checks")
     def test_source_read_only_and_network_copies_keep_manual_updates(self):

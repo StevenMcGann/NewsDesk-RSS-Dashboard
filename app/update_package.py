@@ -23,7 +23,10 @@ MAX_NOTES = 200_000
 TERMINAL = {"complete", "rolled_back", "failed", "cancelled"}
 REQUIRED = ("python/python.exe", "python/pythonw.exe", "app/config.py", "app/launcher.py",
             "app/update_worker.py", "app/installer.py", "app/update_package.py",
-            "app/uninstall.bat", "Start NewsDesk.bat", "NewsDesk.ico", "README.md")
+            "app/uninstall.bat", "Start NewsDesk.bat", "Install NewsDesk.bat", "NewsDesk.ico", "README.md",
+            *("app/static/" + name for name in ("index.html", "app.css", "app.js", "api.js", "articles.js",
+              "dialogs.js", "icons.js", "reader.js", "sidebar.js", "update-ui.js", "util.js", "favicon.svg", "icon-256.png",
+              "vendor/purify.min.js", "vendor/Readability.js", "vendor/turndown.js")))
 
 
 def parse_version(text):
