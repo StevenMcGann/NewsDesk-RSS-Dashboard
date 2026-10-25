@@ -61,9 +61,15 @@ includes, or in your default browser if Edge isn't there.
 
 ## Problems and ideas
 
-Open an issue on this repository. For feeds that won't update, include a screenshot of
-**Settings > Connection > Test connection**. Security problems should be reported
-privately instead: see [SECURITY.md](SECURITY.md).
+Use GitHub Issues to report bugs, ask for help with NewsDesk, or suggest new features
+and improvements. [Open an issue](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/issues/new)
+and describe the problem you're having or the change you'd like to see.
+
+For problem reports, include your NewsDesk version, what you were doing, and any error
+messages. If a feed won't update, also include its address and a screenshot of
+**Settings > Connection > Test connection**.
+
+Report security problems privately using the instructions in [SECURITY.md](SECURITY.md).
 
 ## For developers
 
