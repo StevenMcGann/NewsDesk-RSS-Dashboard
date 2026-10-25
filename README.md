@@ -4,8 +4,9 @@
 [![CodeQL](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/codeql.yml)
 [![Dependency check](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml/badge.svg)](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/actions/workflows/dependencies.yml)
 
-NewsDesk is a free open-source feed reader for Windows, with NO ads, trackers, or pop-ups. Unzip it, double-click, and read. Nothing gets installed, and
-everything stays on your computer.
+NewsDesk is a free open-source feed reader for Windows, with no ads or trackers.
+Install it for your Windows account, or run it directly from an unzipped folder.
+Your feeds, reading history and settings stay on your computer.
 
 > **Credit.** The layout and workflow are modeled on
 > [RSS Dashboard for Obsidian](https://github.com/amatya-aditya/obsidian-rss-dashboard) by
@@ -27,6 +28,8 @@ everything stays on your computer.
 - **Works behind proxies and TLS inspection** by falling back to the same Windows
   networking Edge uses.
 - Light and dark themes, plus keyboard shortcuts.
+- **Optional in-app updates** with release notes, download progress and a brief restart.
+  Feeds, settings, history, shortcuts and your installation location are preserved.
 
 ## Get started
 
@@ -47,6 +50,13 @@ do if something goes wrong. It's also inside the zip as `README.md`.
 **Requirements:** Windows 10 or 11. The app opens in Microsoft Edge, which Windows
 includes, or in your default browser if Edge isn't there.
 
+**Updates from 1.1.0 onward:** choose **Update** in the sidebar or **Settings > Help**
+to read the release notes. **Update and restart** downloads and verifies the package,
+then briefly restarts NewsDesk. You can cancel before installation begins. Local
+portable copies can update too; shared/network folders, read-only copies and source
+checkouts use **Download manually**. Install 1.1.0 manually once to enable future
+in-app updates. See the [updating guide](USER-GUIDE.md#update-newsdesk).
+
 ## Privacy
 
 - The app runs a small server that only your own computer can reach.
@@ -54,7 +64,10 @@ includes, or in your default browser if Edge isn't there.
 - Like any web page, articles can show images and media hosted on other sites, and those
   sites see the request. Turn on **Settings > Hide images from websites** to block them.
 - Once a day it asks GitHub whether a newer NewsDesk has been released. You can turn that
-  off in **Settings > Help**. Updates are never downloaded or installed automatically.
+  off in **Settings > Help**. This check only retrieves release metadata. Choosing
+  **Update and restart** downloads the ZIP and checksum from GitHub and its asset
+  servers; nothing downloads or installs without that action. Release notes inside
+  NewsDesk do not load embedded images.
 - **Test connection** in Settings downloads one test feed, from arstechnica.com.
 - Your feeds, articles and settings live in `%APPDATA%\NewsDesk`. NewsDesk itself sends
   your data nowhere, and there are no accounts, ads or tracking.

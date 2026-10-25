@@ -18,6 +18,17 @@ class WindowLifetimeTest(unittest.TestCase):
         self.windows.heartbeat("background-window")  # resumes without restarting
         self.assertIsNone(self.windows.shutdown_reason())
 
+    def test_update_lease_holds_startup_and_close_but_explicit_quit_wins(self):
+        self.windows.hold_update(True)
+        self.now += 3600
+        self.assertIsNone(self.windows.shutdown_reason())
+        self.windows.heartbeat("updating")
+        self.windows.bye("updating")
+        self.now += 3600
+        self.assertIsNone(self.windows.shutdown_reason())
+        self.windows.request_quit()
+        self.assertEqual(self.windows.shutdown_reason(), "Quit requested")
+
     def test_closing_one_window_does_not_stop_a_paused_second_window(self):
         self.windows.heartbeat("one")
         self.windows.heartbeat("two")

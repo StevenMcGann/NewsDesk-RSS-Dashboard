@@ -85,7 +85,8 @@ class WinHttpClient:
         fields = buffer.value.partition("\r\n")[2]
         return status.value, Parser(_class=HTTPMessage).parsestr(fields)
 
-    def request(self, url, user_agent, headers, *, deadline, timeout, max_bytes):
+    def request(self, url, user_agent, headers, *, deadline, timeout, max_bytes,
+                body_sink=None, cancel=None, progress=None):
         """One HTTP(S) hop, no automatic auth/cookies/redirects; raw capped body."""
         if not self.available:
             raise OSError("Windows WinHTTP is not available")
@@ -136,6 +137,8 @@ class WinHttpClient:
             chunks, total = [], 0
             buffer = ctypes.create_string_buffer(65536)
             while True:
+                if cancel:
+                    cancel()
                 self._timeouts(request, deadline, timeout)
                 available = wintypes.DWORD()
                 self._check(self._dll.WinHttpQueryDataAvailable(request, ctypes.byref(available)))
@@ -158,7 +161,13 @@ class WinHttpClient:
                 total += count.value
                 if total > max_bytes:
                     raise ResponseTooLarge("The response is too large")
-                chunks.append(buffer.raw[:count.value])
+                chunk = buffer.raw[:count.value]
+                if body_sink is None:
+                    chunks.append(chunk)
+                else:
+                    body_sink.write(chunk)
+                if progress:
+                    progress(total)
         except OSError:
             if time.monotonic() >= deadline:
                 raise DownloadTimeout() from None

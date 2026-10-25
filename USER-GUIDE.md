@@ -26,11 +26,6 @@ It keeps running while a window is minimized, in the background, or paused by
 Windows locking/sleeping. **Settings > Help > Quit NewsDesk** stops it explicitly
 for every window. Start it again from the shortcut.
 
-**Updating:** when a new version comes out, a note appears at the bottom of the sidebar.
-Click **Get it** to open the download page, unzip the new version, and run
-**Install NewsDesk** again. Your feeds and settings are kept. NewsDesk checks once a day;
-**Settings > Help** has **Check now** and a switch to turn the check off.
-
 **Without installing:** double-click **Start NewsDesk** in the unzipped folder instead.
 It runs the same app from wherever you unzipped it.
 
@@ -41,6 +36,48 @@ when asked whether to delete your feeds and settings, then install again.
 **To uninstall,** close NewsDesk and run **Uninstall NewsDesk** in
 `%LOCALAPPDATA%\Programs\NewsDesk`. It removes the app and its shortcuts, then asks
 whether to delete your feeds and settings too.
+
+## Update NewsDesk
+
+Install version 1.1.0 manually once. Later versions can update inside the app:
+
+1. Choose **Update** at the bottom of the sidebar or in **Settings > Help**.
+2. Read the release notes and check the version and download size. **View on GitHub**
+   opens the release page. Notes inside NewsDesk are plain text and load no images.
+3. Choose **Update and restart**. You can keep reading during the download and
+   verification. **Cancel update** is available until installation begins.
+4. NewsDesk briefly pauses and restarts. Open windows reconnect, including windows
+   that were minimized or paused while Windows was locked. Their feed, filters and
+   open article are restored where still available. If the original local port is
+   busy, NewsDesk opens a fresh window instead.
+
+Feeds, reading history, stars, settings, connection choices, saved Markdown files,
+shortcuts, and the application location are preserved. Installed copies stay
+installed; portable copies stay portable and gain no shortcuts. No administrator
+permission is required.
+
+Checks happen at most once a day while NewsDesk runs. They only notify you.
+**Settings > Help** has **Check now**, dismissal, and a switch to turn daily checks
+off. Nothing downloads or installs until you choose **Update and restart**.
+
+**Manual updates remain available.** Use **Download manually**, unzip the release,
+close NewsDesk with **Settings > Help > Quit NewsDesk**, and run **Install NewsDesk**
+again. For a portable copy, replace the app with the new unzipped folder. Shared or
+network folders, read-only copies, source checkouts, and copies saving user data
+inside the app folder use manual updates. Missing verification information also
+leaves manual downloading available.
+
+NewsDesk verifies the ZIP against GitHub's SHA-256 digest and the release's checksum,
+checks its contents, and backs up the database and settings before stopping.
+If the replacement cannot start, it restores the previous version and data.
+The previous application and a local snapshot are retained until a later successful
+update cleans them up. Downloads and recovery logs are in
+`%LOCALAPPDATA%\NewsDesk\Updates`; the previous application is kept beside the app
+folder. These files stay on your computer.
+
+If a power loss or locked file prevents recovery, keep those folders and the error
+log when requesting help. Do not delete or move them while an update is active.
+The [recovery guide](docs/UPDATING.md#interrupted-updates) describes the recovery tool.
 
 ## Everyday use
 

@@ -184,7 +184,8 @@ Feed content and web pages are untrusted.
 **Server:**
 - Binds to `127.0.0.1` only. On Windows it uses `SO_EXCLUSIVEADDRUSE`, so no other process can take over the port.
 - Every API call needs the per-launch token written into `index.html`, compared in constant time. The two exceptions:
-  - `/api/ping` reveals only the app name and version.
+  - `/api/ping` reveals the app name, version and, during update reconnection, a
+    non-secret transaction ID and HMAC proof (never the handoff nonce or API token).
   - `/api/bye` carries the token in its query string, because `navigator.sendBeacon` can't set headers.
 - Requests with a foreign `Host` or `Origin` header are refused. This blocks CSRF and DNS rebinding from other sites open in the same browser.
 - UI files are served from a list built at startup. A request path is never turned into a file-system path.
@@ -219,11 +220,23 @@ Feed content and web pages are untrusted.
 - The database stores only `http(s)` addresses for feeds, website links and icons. OPML imports are checked the same way, so a `javascript:` link can't reach `href` or `window.open`. The UI checks again before opening a link.
 - Responses are capped at 10 MB, and decompression at the same size.
 
+**In-app updates (1.1.0):**
+- `update_manager.py` coordinates one explicit job across windows; `update_download.py`
+  streams bounded downloads using the existing connection choices. Release notes use
+  escaped plain text, with no Markdown dependency or embedded-image requests.
+- `update_package.py` validates the repository-owned release identity, both SHA-256
+  sources, archive structure and destination. `update_worker.py` runs from the staged
+  package, quiesces the parent through the normal quit path, and uses `AppReplacement`
+  to retain the old folder through startup validation. Health mode defers background
+  work/user writes; failed startup rolls back the app and consistent data snapshot.
+- Limits, trust boundaries, recovery instructions and the mandatory two-PC publishing
+  checks are in [UPDATING.md](UPDATING.md). Feed response limits are unchanged.
+
 ## Automated checks (GitHub Actions)
 
 | Workflow | Runs | What it does |
 |---|---|---|
-| `ci.yml` Tests | Every push and PR, plus daily at 06:23 UTC | All unit tests on Windows, with Python 3.12 and 3.14. The daily run also covers: the live download tests by both paths; `tools/check_feeds.py`, which checks that every starter feed loads (a 403 or 429 is only a warning, because sites such as cisa.gov refuse cloud datacenter addresses); and `build_portable.ps1 -Test`, which re-checks the bundled Python's SHA-256 and signature. The built zip is kept as a 7-day artifact. |
+| `ci.yml` Tests | Every push to main and PR, plus daily at 06:23 UTC | Windows unit tests on Python 3.12/3.14. PR/manual runs also build with the verified bundled runtime and exercise portable, installed and failed-startup rollback transactions offline; the ZIP, checksum and attended test script are kept as a 14-day candidate artifact. Daily/manual live checks cover all three download methods and starter feeds; a 403/429 from a cloud runner is only a warning. Daily ZIP/checksum artifacts last 7 days. |
 | `codeql.yml` CodeQL | Every push and PR, plus daily | `security-extended` queries for Python and JavaScript. Vendored code and tests are excluded (`.github/codeql/codeql-config.yml`). Results appear in the Security tab. |
 | `dependencies.yml` Dependency check | Daily at 07:07 UTC | `tools/check_dependencies.py` checks each component in `tools/dependencies.json` against [OSV](https://osv.dev) and its registry, and keeps one `dependencies` issue open while something needs doing. |
 

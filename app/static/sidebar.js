@@ -53,7 +53,7 @@ export function renderUpdate() {
   box.replaceChildren(
     icon('download'),
     el('span', { class: 'grow' }, `NewsDesk ${u.latest.version} is available`),
-    el('button', { type: 'button', class: 'btn small primary', onclick: () => openExternal(u.latest.url) }, 'Get it'),
+    el('button', { type: 'button', class: 'btn small primary', onclick: () => ctx.openUpdate() }, 'Update'),
     iconButton('x', 'Not now (hide until the next version)', dismiss, 'small'));
 }
 

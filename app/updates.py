@@ -1,11 +1,6 @@
-"""Check GitHub for a newer NewsDesk release, at most once a day.
-
-It only informs: nothing is downloaded or run. The UI shows a note linking to the
-release page, where the user gets the new zip and runs Install NewsDesk again.
-"""
+"""Daily release notifications; installation requires an explicit user request."""
 import json
 import logging
-import re
 import threading
 import time
 from pathlib import Path
@@ -13,6 +8,7 @@ from pathlib import Path
 import config
 import feeds
 from fetcher import FetchError
+from update_package import parse_version, release_metadata
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +18,6 @@ CHECK_EVERY = 24 * 3600
 FIRST_CHECK_DELAY = 30  # let the first feed refresh go first
 
 
-def parse_version(text):
-    """"v1.2.3" or "1.2" -> (1, 2, 3) / (1, 2, 0); None if it isn't a plain version."""
-    m = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?", str(text or "").strip())
-    return tuple(int(part or 0) for part in m.groups()) if m else None
-
-
 class UpdateChecker:
     def __init__(self, fetcher, settings, data_dir: Path):
         self.fetcher = fetcher
@@ -35,42 +25,62 @@ class UpdateChecker:
         self.path = data_dir / "update.json"
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.manager = None
         try:
             self.state = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            self.state = {}
+        if not isinstance(self.state, dict):
             self.state = {}
 
     def status(self) -> dict:
         with self._lock:
             state = dict(self.state)
         latest = state.get("latest")
-        newer = parse_version(latest["version"]) if latest else None
-        return {
+        if not isinstance(latest, dict):
+            latest = None
+        newer = parse_version(latest.get("version")) if latest else None
+        candidate = state.get("candidate") if isinstance(state.get("candidate"), dict) else {}
+        result = {
             "current": config.VERSION,
             "latest": latest,
             "available": bool(newer and newer > parse_version(config.VERSION)),
             "checked_at": state.get("checked_at"),
             "error": state.get("error"),
             "releases_url": RELEASES_URL,
+            "candidate": candidate.get("identity"),
+            "download_size": candidate["archive"].get("size") if isinstance(candidate.get("archive"), dict) else None,
+            "manual_reason": state.get("manual_reason"),
         }
+        if self.manager:
+            result.update(self.manager.status())
+        else:
+            result.update(can_update=False, job=None)
+        return result
+
+    def notes(self):
+        with self._lock:
+            candidate = self.state.get("candidate")
+            return {"latest": self.state.get("latest"), "notes": self.state.get("notes") or "No release notes were supplied.",
+                    "candidate": candidate.get("identity") if isinstance(candidate, dict) else None}
+
+    def candidate(self):
+        with self._lock:
+            value = self.state.get("candidate")
+            return json.loads(json.dumps(value)) if isinstance(value, dict) else None
 
     def check(self) -> dict:
         state = {"checked_at": time.time(), "latest": None, "error": None}
         try:
             r = self.fetcher.get(API_URL, accept="application/vnd.github+json")
             data = json.loads(r.body)
-            version = parse_version(data.get("tag_name"))
-            if not version:
-                raise ValueError(f"unrecognized version {data.get('tag_name')!r}")
+            latest, candidate, notes, reason = release_metadata(data)
             url = str(data.get("html_url") or "")
             if not url.startswith(RELEASES_URL + "/"):
                 url = RELEASES_URL
-            state["latest"] = {
-                "version": ".".join(map(str, version)),
-                "name": feeds.text(data.get("name"))[:200],
-                "url": url,
-                "published": str(data.get("published_at") or "")[:40],
-            }
+            latest["name"] = feeds.text(latest["name"])[:200]
+            latest["url"] = url
+            state.update(latest=latest, candidate=candidate, notes=notes, manual_reason=reason)
         except FetchError as e:
             if e.status != 404:  # 404 just means no release has been published yet
                 state["error"] = str(e)
