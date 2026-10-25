@@ -21,6 +21,9 @@ class Refresher:
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._idle = threading.Event()
+        self._idle.set()
         self._pending = None  # None, ALL, or a set of feed ids
         self._last_full = None
         self.status = {"running": False, "done": 0, "total": 0, "errors": 0, "last_run": None}
@@ -30,6 +33,16 @@ class Refresher:
 
     def stop(self):
         self._stop.set()
+        self._wake.set()
+
+    def pause(self, timeout):
+        with self._lock:
+            self._paused.set()
+        self._wake.set()
+        return self._idle.wait(timeout)
+
+    def resume(self):
+        self._paused.clear()
         self._wake.set()
 
     def request(self, feed_ids=None):
@@ -52,6 +65,10 @@ class Refresher:
 
     def _loop(self):
         while not self._stop.is_set():
+            if self._paused.is_set():
+                self._wake.wait(1)
+                self._wake.clear()
+                continue
             due = (self._last_full or 0) + self.settings.get("refresh_minutes") * 60
             self._wake.wait(max(0.0, due - time.time()))
             self._wake.clear()
@@ -67,16 +84,20 @@ class Refresher:
                 log.exception("Refresh failed")
 
     def run(self, feed_ids=None):
-        targets = self.store.feeds_for_fetch(feed_ids)
         with self._lock:
-            self.status.update(running=True, done=0, total=len(targets), errors=0)
+            if self._paused.is_set() or self._stop.is_set():
+                return
+            self._idle.clear()
         try:
+            targets = self.store.feeds_for_fetch(feed_ids)
+            with self._lock:
+                self.status.update(running=True, done=0, total=len(targets), errors=0)
             with ThreadPoolExecutor(self.workers, thread_name_prefix="fetch") as pool:
                 for ok in pool.map(self._refresh_one, targets):
                     with self._lock:
                         self.status["done"] += 1
                         self.status["errors"] += 0 if ok else 1
-            if feed_ids is None:
+            if feed_ids is None and not self._paused.is_set() and not self._stop.is_set():
                 removed = self.store.prune(self.settings.get("retention_days"))
                 if removed:
                     log.info("Pruned %d old articles", removed)
@@ -84,10 +105,15 @@ class Refresher:
         finally:
             with self._lock:
                 self.status.update(running=False, last_run=time.time())
+                self._idle.set()
 
     def _refresh_one(self, feed) -> bool:
+        if self._paused.is_set() or self._stop.is_set():
+            return True
         try:
             r = self.fetcher.get(feed["url"], feed["etag"], feed["last_modified"])
+            if self._paused.is_set() or self._stop.is_set():
+                return True
             if r.status == 304:
                 self.store.record_not_modified(feed["id"])
                 return True

@@ -15,6 +15,8 @@ import socket
 import socketserver
 import subprocess
 import time
+import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -66,6 +68,10 @@ ROUTES = [(method, re.compile(f"^{pattern}$"), name) for method, pattern, name i
     ("PATCH", r"/api/settings", "settings_update"),
     ("POST", r"/api/diagnose", "diagnose"),
     ("POST", r"/api/update/check", "update_check"),
+    ("GET", r"/api/update/status", "update_status"),
+    ("GET", r"/api/update/notes", "update_notes"),
+    ("POST", r"/api/update/start", "update_start"),
+    ("POST", r"/api/update/cancel", "update_cancel"),
     ("POST", r"/api/heartbeat", "heartbeat"),
     ("POST", r"/api/bye", "bye"),
     ("POST", r"/api/quit", "quit"),
@@ -99,6 +105,29 @@ class App:
         self.token = secrets.token_urlsafe(32)
         self.port = 0
         self.windows = WindowTracker()
+        self.maintenance = False
+        self._api_condition = threading.Condition()
+        self._active_calls = 0
+
+    @contextmanager
+    def api_activity(self, name):
+        special = name in {"ping", "heartbeat", "bye", "quit", "update_status", "update_notes", "update_cancel", "update_start"}
+        with self._api_condition:
+            if self.maintenance and not special:
+                raise ApiError(503, "NewsDesk is restarting for an update. Please wait.")
+            if not special:
+                self._active_calls += 1
+        try:
+            yield
+        finally:
+            if not special:
+                with self._api_condition:
+                    self._active_calls -= 1
+                    self._api_condition.notify_all()
+
+    def wait_idle(self, timeout):
+        with self._api_condition:
+            return self._api_condition.wait_for(lambda: self._active_calls == 0, timeout)
 
 
 class Server(ThreadingHTTPServer):
@@ -201,7 +230,8 @@ class Handler(BaseHTTPRequestHandler):
         if name not in PUBLIC and not same_secret(self.headers.get("X-Token", ""), self.app.token):
             return self._json(403, {"error": "Forbidden"})
         try:
-            result = getattr(self, "api_" + name)(*(int(g) for g in m.groups()))
+            with self.app.api_activity(name):
+                result = getattr(self, "api_" + name)(*(int(g) for g in m.groups()))
         except ApiError as e:
             return self._json(e.status, {"error": str(e)})
         except NotFound as e:
@@ -262,7 +292,9 @@ class Handler(BaseHTTPRequestHandler):
     # ---- endpoints ----------------------------------------------------------------
 
     def api_ping(self):
-        return {"app": "newsdesk", "version": config.VERSION}
+        manager = self.app.updates.manager if self.app.updates else None
+        return {"app": "newsdesk", "version": config.VERSION,
+                "reconnect": manager.reconnect(self.app.port) if manager else None}
 
     def api_state(self):
         a = self.app
@@ -433,6 +465,28 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "Update checks aren't available")
         return self.app.updates.check()
 
+    def api_update_status(self):
+        if not self.app.updates:
+            raise ApiError(400, "Update checks aren't available")
+        return self.app.updates.status()
+
+    def api_update_notes(self):
+        if not self.app.updates:
+            raise ApiError(400, "Update checks aren't available")
+        return self.app.updates.notes()
+
+    def api_update_start(self):
+        manager = self.app.updates.manager if self.app.updates else None
+        if not manager:
+            raise ApiError(400, "In-app updates aren't available in this copy")
+        return manager.start(self.data().get("candidate"))
+
+    def api_update_cancel(self):
+        manager = self.app.updates.manager if self.app.updates else None
+        if not manager:
+            raise ApiError(400, "In-app updates aren't available in this copy")
+        return {"job": manager.cancel()}
+
     def api_heartbeat(self):
         self.app.windows.heartbeat(self.data().get("window_id"))
         return {"version": self.app.store.version, "refresh": self.app.refresher.snapshot(),
@@ -443,4 +497,6 @@ class Handler(BaseHTTPRequestHandler):
             self.app.windows.bye(self.arg("w"))
 
     def api_quit(self):
+        if self.app.updates and self.app.updates.manager:
+            self.app.updates.manager.cancel_for_quit()
         self.app.windows.request_quit()

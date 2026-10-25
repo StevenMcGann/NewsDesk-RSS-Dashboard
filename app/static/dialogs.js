@@ -495,7 +495,7 @@ export function settings() {
 
   const shortcutsBtn = button('Show', () => shortcuts(), 'small');
   const updateStatus = el('div', { class: 'desc' }, updateText(ctx.state.update));
-  const getIt = button('Get it', () => openExternal(ctx.state.update?.latest?.url), 'small primary');
+  const getIt = button('Update', () => { dlg.close(); ctx.openUpdate(); }, 'small primary');
   getIt.classList.toggle('hidden', !ctx.state.update?.available);
   const checkNow = button('Check now', async () => {
     try {
@@ -549,7 +549,7 @@ export function settings() {
         row('Quit NewsDesk', 'Stop the app and background checks for all windows.', quit),
         row('Keyboard shortcuts', null, shortcutsBtn),
         row('Your data', app.data_dir, button('Open folder', () => api.post('/api/open-folder', { which: 'data' }).catch((e) => toast(e.message, { error: true })), 'small')),
-        row('Check for new versions', 'Once a day NewsDesk asks GitHub whether a newer version is out. Nothing is downloaded automatically.',
+        row('Check for new versions', 'Daily checks only notify you. Update opens release notes before you choose to download and install.',
           toggle('check_updates', () => renderUpdate())),
         el('div', { class: 'setting-row' },
           el('div', { class: 'what' }, el('div', {}, `Version ${app.version}`), updateStatus),

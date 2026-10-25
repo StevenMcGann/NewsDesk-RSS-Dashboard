@@ -89,9 +89,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/state")[0], 200)
 
     def test_index_carries_token_and_security_headers(self):
+        self.app.token = "fixture__launch_token"  # URL-safe random tokens can contain __.
         resp, body = self.call("GET", "/", token=False, raw=True)
         self.assertIn(self.app.token.encode(), body)
-        self.assertNotIn(b"__", body)  # every placeholder filled in
+        self.assertNotIn(b"__API_TOKEN__", body)
+        self.assertNotIn(b"__ICON_VERSION__", body)
         self.assertIn(f'favicon.svg?v={self.srv.icon_version}"'.encode(), body)
         self.assertEqual(len(self.srv.icon_version), 10)
         self.assertEqual(self.call("GET", f"/favicon.svg?v={self.srv.icon_version}", token=False, raw=True)[0].status, 200)
@@ -160,6 +162,37 @@ class ServerTest(unittest.TestCase):
             quit_app.assert_not_called()
             self.assertEqual(self.call("POST", "/api/quit", {})[0], 200)
             quit_app.assert_called_once_with()
+
+    def test_update_routes_require_token_and_never_accept_paths(self):
+        checker = UpdateChecker(FakeFetcher(), self.settings, Path(self.tmp.name))
+        manager = mock.Mock()
+        checker.manager = manager
+        manager.status.return_value = {"can_update": True, "job": None}
+        manager.start.return_value = {"id": "test", "phase": "checking"}
+        manager.cancel.return_value = {"id": "test", "phase": "cancelled"}
+        self.app.updates = checker
+        try:
+            for method, path in (("GET", "/api/update/status"), ("GET", "/api/update/notes"),
+                                  ("POST", "/api/update/start"), ("POST", "/api/update/cancel")):
+                self.assertEqual(self.call(method, path, {}, token=False)[0], 403)
+                self.assertEqual(self.call(method, path, {}, headers={"Origin": "https://evil.test"})[0], 403)
+            self.assertEqual(self.call("POST", "/api/update/start", {"candidate": "selected", "target": "C:/evil", "url": "https://evil.test"})[0], 200)
+            manager.start.assert_called_once_with("selected")
+            self.assertEqual(self.call("POST", "/api/update/cancel", {})[0], 200)
+            self.assertEqual(self.call("GET", "/api/update/notes")[0], 200)
+        finally:
+            self.app.updates = None
+
+    def test_update_maintenance_blocks_mutations_and_drains_calls(self):
+        self.app.maintenance = True
+        try:
+            self.assertEqual(self.call("PATCH", "/api/settings", {"theme": "light"})[0], 503)
+            self.assertEqual(self.call("GET", "/api/items")[0], 503)
+            self.assertEqual(self.call("GET", "/api/ping", token=False)[0], 200)
+            self.assertEqual(self.call("POST", "/api/heartbeat", {"window_id": "update-wait"})[0], 200)
+            self.assertTrue(self.app.wait_idle(.1))
+        finally:
+            self.app.maintenance = False
 
     def test_bad_content_length_is_rejected(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)

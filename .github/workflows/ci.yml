@@ -58,5 +58,33 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: NewsDesk-portable
-          path: dist/NewsDesk-*.zip
+          path: |
+            dist/NewsDesk-*.zip
+            dist/NewsDesk-*.zip.sha256
+          if-no-files-found: error
           retention-days: 7
+
+  candidate:
+    name: Packaged updater acceptance
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: unit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build with the verified bundled runtime
+        shell: pwsh
+        run: ./build_portable.ps1 -Test
+      - name: Exercise real portable, installed and rollback transactions offline
+        shell: pwsh
+        run: ./dist/NewsDesk/python/python.exe -B tools/test_update_acceptance.py --candidate ./dist/NewsDesk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: NewsDesk-1.1.0-candidate
+          path: |
+            dist/NewsDesk-*.zip
+            dist/NewsDesk-*.zip.sha256
+            tools/test_update_acceptance.py
+          if-no-files-found: error
+          retention-days: 14

@@ -23,6 +23,28 @@ class WindowTracker:
         self._closed = set()
         self._closed_at = None
         self._quit = False
+        self._updating = False
+
+    def hold_update(self, active):
+        with self._lock:
+            self._updating = bool(active)
+
+    def reset_startup(self):
+        with self._lock:
+            self._started = self._clock()
+
+    def open_ids(self):
+        with self._lock:
+            return sorted(self._open)
+
+    def inherit(self, identifiers):
+        """Transfer known-open documents across an authenticated update restart."""
+        identifiers = {window_id(value) for value in identifiers}
+        with self._lock:
+            self._open.update(identifiers - self._closed)
+            if self._open:
+                self._seen_window = True
+                self._closed_at = None
 
     def heartbeat(self, identifier):
         identifier = window_id(identifier)
@@ -53,7 +75,7 @@ class WindowTracker:
         with self._lock:
             if self._quit:
                 return "Quit requested"
-            if stay or self._open:
+            if stay or self._open or self._updating:
                 return None
             now = self._clock()
             if self._closed_at is not None and now - self._closed_at >= CLOSE_GRACE:

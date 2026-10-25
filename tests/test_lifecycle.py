@@ -18,6 +18,17 @@ class WindowLifetimeTest(unittest.TestCase):
         self.windows.heartbeat("background-window")  # resumes without restarting
         self.assertIsNone(self.windows.shutdown_reason())
 
+    def test_update_lease_holds_startup_and_close_but_explicit_quit_wins(self):
+        self.windows.hold_update(True)
+        self.now += 3600
+        self.assertIsNone(self.windows.shutdown_reason())
+        self.windows.heartbeat("updating")
+        self.windows.bye("updating")
+        self.now += 3600
+        self.assertIsNone(self.windows.shutdown_reason())
+        self.windows.request_quit()
+        self.assertEqual(self.windows.shutdown_reason(), "Quit requested")
+
     def test_closing_one_window_does_not_stop_a_paused_second_window(self):
         self.windows.heartbeat("one")
         self.windows.heartbeat("two")
@@ -29,6 +40,24 @@ class WindowLifetimeTest(unittest.TestCase):
         self.assertIsNone(self.windows.shutdown_reason())
         self.now += 1
         self.assertEqual(self.windows.shutdown_reason(), "All registered windows closed")
+
+    def test_update_inherits_all_paused_documents_and_preserves_close_tracking(self):
+        self.windows.heartbeat("one")
+        self.windows.heartbeat("two")
+        replacement = WindowTracker(clock=lambda: self.now)
+        replacement.inherit(self.windows.open_ids())
+        self.now += 24 * 3600  # Every browser can remain suspended beyond startup grace.
+        self.assertIsNone(replacement.shutdown_reason())
+        replacement.heartbeat("one")
+        replacement.bye("one")
+        self.now += 3600
+        self.assertIsNone(replacement.shutdown_reason())
+        replacement.heartbeat("two")
+        replacement.bye("two")
+        self.now += 25
+        self.assertEqual(replacement.shutdown_reason(), "All registered windows closed")
+        replacement.heartbeat("two")
+        self.assertEqual(replacement.shutdown_reason(), "All registered windows closed")
 
     def test_reload_or_new_window_during_close_grace_keeps_server(self):
         self.windows.heartbeat("old-document")

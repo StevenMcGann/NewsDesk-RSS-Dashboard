@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import re
 from ctypes import wintypes
 from pathlib import Path
 
@@ -24,7 +25,7 @@ sys.path.insert(0, str(APP_DIR))
 import config  # noqa: E402
 
 COPY = ("python", "app", "Start NewsDesk.bat", "NewsDesk.ico", "README.md", "LICENSE", "THIRD-PARTY.md",
-        "starter-feeds.opml")
+        "starter-feeds.opml", "docs")
 SHORTCUT = f"{config.SHORT_NAME}.lnk"
 MANIFEST = "install.json"
 FOLDERID_DESKTOP = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
@@ -192,6 +193,65 @@ def copy_app(source: Path, target: Path):
             raise InstallError(RUNNING) from None
     staging.rename(target)
     shutil.rmtree(old, ignore_errors=True)
+
+
+class AppReplacement:
+    """Updater-owned sibling directories; the previous app survives until commit."""
+
+    def __init__(self, source, target, version, identifier):
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            raise InstallError("Invalid update transaction")
+        self.source, self.target = Path(source).resolve(), Path(target).resolve()
+        self.version = version
+        self.staging = self.target.with_name(f".{self.target.name}.update-{identifier}.new")
+        self.backup = self.target.with_name(f".{self.target.name}.update-{identifier}.old")
+        self.failed = self.target.with_name(f".{self.target.name}.update-{identifier}.failed")
+        if self.source == self.target or self.target == self.target.parent:
+            raise InstallError("Invalid application replacement paths")
+
+    def prepare(self):
+        if self.staging.exists() or self.backup.exists() or self.failed.exists():
+            raise InstallError("Update recovery files already exist; they have been preserved")
+        self.staging.mkdir()
+        skip = shutil.ignore_patterns("__pycache__", "*.pyc")
+        for name in (*COPY, "Install NewsDesk.bat"):
+            item = self.source / name
+            if item.is_dir():
+                shutil.copytree(item, self.staging / name, ignore=skip)
+            elif item.is_file():
+                shutil.copy2(item, self.staging / name)
+        manifest_path = self.target / MANIFEST
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest.get("shortcuts"), list):
+                raise InstallError("Invalid installation record")
+            manifest["version"] = self.version
+            (self.staging / MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            shutil.copyfile(self.source / "app" / "uninstall.bat", self.staging / f"Uninstall {config.SHORT_NAME}.bat")
+        unblock(self.staging)
+
+    def apply(self):
+        if os.name == "nt" and running_from(self.target):
+            raise InstallError(RUNNING)
+        if not self.staging.is_dir() or self.backup.exists():
+            raise InstallError("The staged update or backup location is invalid")
+        self.target.rename(self.backup)
+        try:
+            self.staging.rename(self.target)
+        except OSError:
+            self.backup.rename(self.target)
+            raise
+
+    def rollback(self):
+        if not self.backup.is_dir():
+            return
+        if os.name == "nt" and running_from(self.target):
+            raise InstallError("The replacement is still running; recovery files have been preserved")
+        if self.target.exists():
+            if self.failed.exists():
+                raise InstallError("Recovery destination exists; recovery files have been preserved")
+            self.target.rename(self.failed)
+        self.backup.rename(self.target)
 
 
 def install(source: Path, target: Path, shortcut_dirs: list) -> list:

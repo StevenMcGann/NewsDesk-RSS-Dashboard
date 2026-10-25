@@ -28,6 +28,7 @@ from refresher import Refresher  # noqa: E402
 from server import App, create_server  # noqa: E402
 from store import Store  # noqa: E402
 from updates import UpdateChecker  # noqa: E402
+from update_manager import UpdateManager  # noqa: E402
 
 DEFAULT_PORT = 47821
 
@@ -41,6 +42,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-window", action="store_true", help="don't open a window")
     parser.add_argument("--stay", action="store_true", help="keep running when windows close")
     parser.add_argument("--diagnose", action="store_true", help="test feed downloads and print a report")
+    parser.add_argument("--update-session", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
     if args.data:
@@ -78,13 +80,24 @@ def serve(data: Path, args):
     fetcher = Fetcher(lambda: settings.get("fetch_mode"))
     refresher = Refresher(store, fetcher, settings)
     updates = UpdateChecker(fetcher, settings, data)
+    manager = UpdateManager(updates, data, handoff=getattr(args, "update_session", None),
+                            launch={"port": args.port, "stay": args.stay})
     app = App(store, settings, fetcher, refresher, data, updates)
+    manager.attach(app)
     srv = create_server(app, args.port)
+    manager.inherit_windows(app.port)
     url = f"http://127.0.0.1:{app.port}/"
     (data / "instance.json").write_text(json.dumps({"port": app.port, "pid": os.getpid()}), encoding="utf-8")
     log.info("NewsDesk %s serving %s (data in %s)", config.VERSION, url, data)
-    refresher.start()
-    updates.start()
+    def start_services():
+        refresher.start()
+        updates.start()
+    if manager.health_mode:
+        app.maintenance = True
+        app.windows.hold_update(True)
+        threading.Thread(target=manager.activate_after_commit, args=(start_services,), daemon=True).start()
+    else:
+        start_services()
     threading.Thread(target=watchdog, args=(app, srv, args.stay), name="watchdog", daemon=True).start()
     if not args.no_window:
         open_window(url)

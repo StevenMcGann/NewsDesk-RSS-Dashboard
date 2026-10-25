@@ -5,6 +5,7 @@ import * as sidebar from './sidebar.js';
 import * as articles from './articles.js';
 import * as reader from './reader.js';
 import * as dialogs from './dialogs.js';
+import * as updateUI from './update-ui.js';
 
 const state = {
   data: { folders: [], feeds: [], tags: [], totals: {}, app: {} },
@@ -50,6 +51,7 @@ const ctx = {
   moveSelection,
   refresh,
   quit,
+  openUpdate: () => updateUI.open(),
   markAllRead,
   markPageRead,
   applyLayout,
@@ -306,11 +308,14 @@ async function heartbeat() {
     hb = await api.heartbeat();
   } catch (e) {
     if (state.quitting) return;
+    if ((e.status === 0 || e.status === 403 || e.status === 503) && updateUI.reconnect()) return;
     if (e.status === 0) document.getElementById('offline').classList.remove('hidden');
     schedulePoll(15000);
     return;
   }
   if (state.quitting) return;
+  updateUI.observe(hb.update);
+  if (updateUI.isReconnecting()) return;
   document.getElementById('offline').classList.add('hidden');
   const finished = state.refresh.running && !hb.refresh.running;
   state.refresh = hb.refresh;
@@ -427,22 +432,29 @@ function onKey(e) {
 // ---- start -------------------------------------------------------------------------
 
 async function start() {
+  updateUI.init(ctx);
   for (const mod of [sidebar, articles, reader, dialogs]) mod.init(ctx);
   const saved = store('filters');
   if (saved) Object.assign(state.filters, saved);
   try {
     await loadState();
   } catch (e) {
+    if ((e.status === 403 || e.status === 503 || e.status === 0) && updateUI.reconnect()) return;
     toast(e.message, { error: true, timeout: 0 });
     return;
   }
   state.filters.status = state.settings.status_filter;
   state.sort = state.settings.sort;
+  updateUI.observe(state.update);
+  updateUI.restoreBeforeItems();
+  if (!viewExists(state.view)) state.view = 'all';
+  sidebar.render();
   applyLayout();
   darkQuery.addEventListener('change', applyTheme);
   setupResizers();
   articles.renderHeader();
   await loadItems();
+  await updateUI.restoreAfterItems();
   document.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
   window.addEventListener('pagehide', (event) => { if (!event.persisted) api.bye(); });

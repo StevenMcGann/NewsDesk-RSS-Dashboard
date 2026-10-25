@@ -1,6 +1,16 @@
 // Calls to the local server. Every request carries the per-launch token from index.html.
 export const TOKEN = document.querySelector('meta[name="api-token"]').content;
-const WINDOW_ID = crypto.randomUUID();
+function documentId() {
+  // An update reload resumes a registration inherited by the replacement server.
+  // Ordinary reloads still create a fresh document and keep close tombstones intact.
+  try {
+    const inherited = sessionStorage.getItem('newsdesk-update-document');
+    sessionStorage.removeItem('newsdesk-update-document');
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(inherited || '')) return inherited;
+  } catch { /* Optional browser storage. */ }
+  return crypto.randomUUID();
+}
+export const WINDOW_ID = documentId();
 
 export class ApiError extends Error {
   constructor(message, status) {

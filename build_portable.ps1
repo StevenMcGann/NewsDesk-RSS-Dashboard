@@ -64,6 +64,8 @@ foreach ($file in 'Start NewsDesk.bat', 'Install NewsDesk.bat', 'starter-feeds.o
     Copy-Item (Join-Path $root $file) $stage
 }
 Copy-Item (Join-Path $root 'USER-GUIDE.md') (Join-Path $stage 'README.md')
+New-Item -ItemType Directory -Force (Join-Path $stage 'docs') | Out-Null
+Copy-Item (Join-Path $root 'docs\UPDATING.md') (Join-Path $stage 'docs\UPDATING.md')
 Copy-Item (Join-Path $root 'assets\newsdesk.ico') (Join-Path $stage 'NewsDesk.ico')
 
 # 3. Smoke test with the bundled runtime (also proves sqlite3 and ssl are present).
@@ -80,5 +82,7 @@ Get-ChildItem $stage -Recurse -Directory -Filter '__pycache__' | Remove-Item -Re
 # 4. Zip it (the zip holds a single "NewsDesk" folder).
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path $stage -DestinationPath $zipPath
+$releaseHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText(($zipPath + '.sha256'), ($releaseHash + ' *' + [IO.Path]::GetFileName($zipPath) + [char]10), [Text.Encoding]::ASCII)
 $size = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
 Write-Host "Built $zipPath ($size MB) with Python $PythonVersion"
