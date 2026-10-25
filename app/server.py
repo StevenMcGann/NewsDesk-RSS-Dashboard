@@ -24,6 +24,7 @@ import export_md
 import feeds
 import opml
 from fetcher import ACCEPT_PAGE, FetchError
+from lifecycle import WindowTracker
 from store import NotFound
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ ROUTES = [(method, re.compile(f"^{pattern}$"), name) for method, pattern, name i
     ("POST", r"/api/update/check", "update_check"),
     ("POST", r"/api/heartbeat", "heartbeat"),
     ("POST", r"/api/bye", "bye"),
+    ("POST", r"/api/quit", "quit"),
 ]]
 PUBLIC = {"ping", "bye"}  # bye comes from navigator.sendBeacon, which carries the token in the query
 
@@ -96,13 +98,7 @@ class App:
         self.updates = updates
         self.token = secrets.token_urlsafe(32)
         self.port = 0
-        self.started = time.monotonic()
-        self.last_heartbeat = None
-        self.bye_at = None
-
-    def heartbeat(self):
-        self.last_heartbeat = time.monotonic()
-        self.bye_at = None
+        self.windows = WindowTracker()
 
 
 class Server(ThreadingHTTPServer):
@@ -438,10 +434,13 @@ class Handler(BaseHTTPRequestHandler):
         return self.app.updates.check()
 
     def api_heartbeat(self):
-        self.app.heartbeat()
+        self.app.windows.heartbeat(self.data().get("window_id"))
         return {"version": self.app.store.version, "refresh": self.app.refresher.snapshot(),
                 "update": self.app.updates.status() if self.app.updates else None}
 
     def api_bye(self):
         if same_secret(self.arg("t", ""), self.app.token):
-            self.app.bye_at = time.monotonic()
+            self.app.windows.bye(self.arg("w"))
+
+    def api_quit(self):
+        self.app.windows.request_quit()

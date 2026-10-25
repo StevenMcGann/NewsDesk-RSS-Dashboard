@@ -22,6 +22,7 @@ const state = {
   update: null,
   userRefresh: false,
   newSinceLoad: false,
+  quitting: false,
 };
 
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
@@ -48,6 +49,7 @@ const ctx = {
   closeReader,
   moveSelection,
   refresh,
+  quit,
   markAllRead,
   markPageRead,
   applyLayout,
@@ -293,18 +295,22 @@ function watchRefresh() {
 
 function schedulePoll(ms) {
   clearTimeout(pollTimer);
+  if (state.quitting) return;
   pollTimer = setTimeout(heartbeat, ms);
 }
 
 async function heartbeat() {
+  if (state.quitting) return;
   let hb;
   try {
-    hb = await api.post('/api/heartbeat');
+    hb = await api.heartbeat();
   } catch (e) {
+    if (state.quitting) return;
     if (e.status === 0) document.getElementById('offline').classList.remove('hidden');
     schedulePoll(15000);
     return;
   }
+  if (state.quitting) return;
   document.getElementById('offline').classList.add('hidden');
   const finished = state.refresh.running && !hb.refresh.running;
   state.refresh = hb.refresh;
@@ -328,6 +334,16 @@ async function heartbeat() {
     }
   }
   schedulePoll(hb.refresh.running ? 1000 : 15000);
+}
+
+async function quit() {
+  await api.post('/api/quit');
+  state.quitting = true;
+  clearTimeout(pollTimer);
+  const offline = document.getElementById('offline');
+  offline.querySelector('strong').textContent = 'NewsDesk has quit';
+  offline.querySelector('p').textContent = 'You can close this window. Start NewsDesk to open it again.';
+  offline.classList.remove('hidden');
 }
 
 // ---- layout ------------------------------------------------------------------------
@@ -429,7 +445,8 @@ async function start() {
   await loadItems();
   document.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
-  window.addEventListener('pagehide', () => api.bye());
+  window.addEventListener('pagehide', (event) => { if (!event.persisted) api.bye(); });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) heartbeat(); });
   heartbeat();
   if (!state.data.feeds.length && !state.settings.first_run_done) dialogs.welcome();
 }

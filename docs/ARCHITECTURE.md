@@ -69,7 +69,8 @@ tools\check_dependencies.py, dependencies.json
                           daily vulnerability and update check of bundled components
 .github\                  workflows (ci, codeql, dependencies), CodeQL config, Dependabot config
 SECURITY.md               how to report vulnerabilities privately
-app\launcher.py           single-instance lock, starts the server and refresher, opens the window, idle shutdown
+app\launcher.py           single-instance lock, starts services/window, lifecycle shutdown
+app\lifecycle.py          window registration/close tracking and explicit Quit
 app\server.py             HTTP server: JSON API and static UI, plus the security checks
 app\store.py              SQLite schema and every query
 app\fetcher.py            HTTP selection: urllib, PowerShell/.NET, native WinHTTP
@@ -168,9 +169,13 @@ User data in `%APPDATA%\NewsDesk`:
 - Without the last condition, a slow feed would bring a pruned article back as unread on the next refresh.
 
 **Window lifecycle.**
-- The page sends a heartbeat every 15 s, and a beacon on `pagehide`.
-- The server exits 25 s after the last window says goodbye, or after 180 s with no heartbeat. Hidden windows are throttled to one timer per minute, so the timeout has to be long.
+- Each page creates its own random document ID, registers it in its heartbeat, and includes it in the authenticated `pagehide` close beacon. A page entering the back/forward cache does not send a close beacon; `pageshow` refreshes it when restored.
+- A registered window stays open even if its JavaScript timers pause indefinitely. Browser timer silence, minimization, Windows locking and sleep do not prove that a window closed.
+- The server exits 25 s after the last registered document explicitly closes. A new document registering during that grace cancels shutdown. Closing one window cannot expire a second paused window. Duplicate closes and late heartbeats cannot restart the grace or revive a closed document.
+- The first-window startup grace remains 120 s. `--stay` suppresses automatic startup/close shutdown. Authenticated **Settings > Help > Quit NewsDesk** works in either mode.
+- If a browser crashes or drops a close beacon, a registration can remain. Relaunch NewsDesk and choose **Quit NewsDesk** before updating/uninstalling. The app deliberately retains the server rather than guessing that a silent window has gone away.
 - A second launch finds the running server through `instance.lock` and `instance.json` and opens another window.
+- Lifecycle transitions are locked across HTTP handler threads. Shutdown logs distinguish an unconnected first window, all registered windows closing, and explicit Quit. The Quit endpoint retains the ordinary launch-token and Host/Origin checks.
 
 ## Security model
 

@@ -181,6 +181,13 @@ add/refresh the original CISA URL and refresh it a second time. The comparison
 verified the native request profile on the work PC; the integrated release still
 requires that final work-PC confirmation before closing issue #2.
 
+### Confirmed in the integrated application
+
+The reporter confirmed that CISA's RSS feed loads after installing 1.0.6 on the
+affected work PC in [this issue comment](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/issues/2#issuecomment-6391402461).
+Issue #2 is closed as resolved in 1.0.6. The later stop/timeout report is tracked
+separately in [issue #4](https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard/issues/4).
+
 ## Standalone diagnostic
 
 Copy `tools/Test-CisaWinHttp.ps1` to that PC and run it in Windows PowerShell:

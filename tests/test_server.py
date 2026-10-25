@@ -14,6 +14,7 @@ from _path import sample
 import config
 import server
 from fetcher import FetchError, Response
+from lifecycle import WindowTracker
 from refresher import Refresher
 from server import App, create_server
 from store import Store
@@ -128,8 +129,37 @@ class ServerTest(unittest.TestCase):
 
     def test_non_ascii_token_is_refused_cleanly(self):
         self.assertEqual(self.call("GET", "/api/state", headers={"X-Token": "caf\u00e9"})[0], 403)
-        self.assertEqual(self.call("POST", "/api/bye?t=caf%C3%A9", {}, token=False)[0], 200)
-        self.assertIsNone(self.app.bye_at)
+        with mock.patch.object(self.app.windows, "bye") as bye:
+            self.assertEqual(self.call("POST", "/api/bye?t=caf%C3%A9", {}, token=False)[0], 200)
+            bye.assert_not_called()
+
+    def test_window_ids_keep_other_windows_alive_after_close(self):
+        previous = self.app.windows
+        now = [1000]
+        self.app.windows = WindowTracker(clock=lambda: now[0])
+        try:
+            self.assertEqual(self.call("POST", "/api/heartbeat", {})[0], 400)
+            self.assertEqual(self.call("POST", "/api/heartbeat", {"window_id": "one"}, token=False)[0], 403)
+            for identifier in ("one", "two"):
+                self.assertEqual(self.call("POST", "/api/heartbeat", {"window_id": identifier})[0], 200)
+            self.assertEqual(self.call("POST", f"/api/bye?t={self.app.token}&w=one", token=False)[0], 200)
+            now[0] += 3600
+            self.assertIsNone(self.app.windows.shutdown_reason())
+            self.assertEqual(self.call("POST", "/api/bye?t=wrong&w=two", token=False)[0], 200)
+            self.assertIsNone(self.app.windows.shutdown_reason())
+            self.assertEqual(self.call("POST", f"/api/bye?t={self.app.token}&w=two", token=False)[0], 200)
+            now[0] += 25
+            self.assertEqual(self.app.windows.shutdown_reason(), "All registered windows closed")
+        finally:
+            self.app.windows = previous
+
+    def test_quit_requires_the_launch_token_and_same_origin(self):
+        with mock.patch.object(self.app.windows, "request_quit") as quit_app:
+            self.assertEqual(self.call("POST", "/api/quit", {}, token=False)[0], 403)
+            self.assertEqual(self.call("POST", "/api/quit", {}, headers={"Origin": "https://evil.test"})[0], 403)
+            quit_app.assert_not_called()
+            self.assertEqual(self.call("POST", "/api/quit", {})[0], 200)
+            quit_app.assert_called_once_with()
 
     def test_bad_content_length_is_rejected(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
@@ -225,7 +255,7 @@ class ServerTest(unittest.TestCase):
         try:
             status, body = self.call("POST", "/api/update/check", {})
             self.assertEqual((status, body["available"], body["latest"]["version"]), (200, True, "99.1.0"))
-            self.assertTrue(self.call("POST", "/api/heartbeat", {})[1]["update"]["available"])
+            self.assertTrue(self.call("POST", "/api/heartbeat", {"window_id": "test-updates"})[1]["update"]["available"])
             self.assertTrue(self.call("GET", "/api/state")[1]["update"]["available"])
         finally:
             self.app.updates = None

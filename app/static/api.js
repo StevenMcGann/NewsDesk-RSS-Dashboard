@@ -1,5 +1,6 @@
 // Calls to the local server. Every request carries the per-launch token from index.html.
 export const TOKEN = document.querySelector('meta[name="api-token"]').content;
+const WINDOW_ID = crypto.randomUUID();
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -37,5 +38,6 @@ export const api = {
   patch: (path, body) => request('PATCH', path, body),
   put: (path, body) => request('PUT', path, body),
   del: (path) => request('DELETE', path),
-  bye: () => navigator.sendBeacon(`/api/bye?t=${encodeURIComponent(TOKEN)}`),
+  heartbeat: () => request('POST', '/api/heartbeat', { window_id: WINDOW_ID }),
+  bye: () => navigator.sendBeacon(`/api/bye?t=${encodeURIComponent(TOKEN)}&w=${encodeURIComponent(WINDOW_ID)}`),
 };

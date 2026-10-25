@@ -509,7 +509,14 @@ export function settings() {
     }
   }, 'small');
   const app = ctx.state.data.app;
-  dialog({
+  const quit = button('Quit NewsDesk', async () => {
+    dlg.close();
+    if (!await confirm({ title: 'Quit NewsDesk?',
+      message: 'Stop NewsDesk and background checks for all open windows? Your feeds and reading history are kept.',
+      confirmLabel: 'Quit NewsDesk' })) return;
+    try { await ctx.quit(); } catch (e) { toast(e.message, { error: true }); }
+  }, 'small');
+  const dlg = dialog({
     title: 'Settings',
     wide: true,
     onClose: () => { if (listDirty) ctx.loadItems({ keepScroll: true }); },
@@ -539,6 +546,7 @@ export function settings() {
         stack('Check the connection', 'Downloads a test feed with each method and reports which works.', el('div', {}, test), report)),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Tags'), tagEditor(() => { listDirty = true; })),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Help'),
+        row('Quit NewsDesk', 'Stop the app and background checks for all windows.', quit),
         row('Keyboard shortcuts', null, shortcutsBtn),
         row('Your data', app.data_dir, button('Open folder', () => api.post('/api/open-folder', { which: 'data' }).catch((e) => toast(e.message, { error: true })), 'small')),
         row('Check for new versions', 'Once a day NewsDesk asks GitHub whether a newer version is out. Nothing is downloaded automatically.',

@@ -21,7 +21,10 @@ The installer copies NewsDesk to `%LOCALAPPDATA%\Programs\NewsDesk` and adds a
 **NewsDesk** shortcut to your desktop and Start menu. It needs no admin rights and
 registers nothing with Windows. Afterwards you can delete the folder you unzipped.
 
-Closing the window stops the app; start it again from the shortcut.
+Closing the last NewsDesk window normally stops the app after about 25 seconds.
+It keeps running while a window is minimized, in the background, or paused by
+Windows locking/sleeping. **Settings > Help > Quit NewsDesk** stops it explicitly
+for every window. Start it again from the shortcut.
 
 **Updating:** when a new version comes out, a note appears at the bottom of the sidebar.
 Click **Get it** to open the download page, unzip the new version, and run
@@ -66,9 +69,14 @@ Keyboard: **j** and **k** for next and previous, **m** for read or unread, **s**
   **Settings > Connection > Windows (WinHTTP)**, or leave **Automatic** selected
   to try WinHTTP first, with .NET and Python fallbacks. The app remembers a
   successful method for each site until it restarts.
-- **"NewsDesk has stopped."** Start it again from its shortcut.
-- **"NewsDesk is still running"** when installing or uninstalling. Close the NewsDesk
-  window, wait about 30 seconds for it to shut down, then try again.
+- **"NewsDesk has stopped."** Version 1.0.7 fixes automatic shutdown after a
+  background window stops sending heartbeats. Update, then start it from its
+  shortcut. If it happens again, include the nearby `app.log` shutdown/error
+  messages when reporting it.
+- **"NewsDesk is still running"** when installing or uninstalling. Use
+  **Settings > Help > Quit NewsDesk**, or close every NewsDesk window. If the
+  browser crashed or a close notification was lost, reopen NewsDesk and use
+  **Quit NewsDesk**. Wait about 30 seconds for it to stop, then try again.
 
 Your feeds and settings are stored in `%APPDATA%\NewsDesk`, separate from the app, so
 installing a newer version doesn't touch them.

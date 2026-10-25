@@ -30,9 +30,6 @@ from store import Store  # noqa: E402
 from updates import UpdateChecker  # noqa: E402
 
 DEFAULT_PORT = 47821
-IDLE_LIMIT = 180     # no heartbeat for this long: windows are gone (hidden windows tick once a minute)
-CLOSE_GRACE = 25     # after a window says goodbye, wait this long for another heartbeat
-STARTUP_GRACE = 120  # how long the first window gets to load
 
 log = logging.getLogger("launcher")
 
@@ -88,8 +85,7 @@ def serve(data: Path, args):
     log.info("NewsDesk %s serving %s (data in %s)", config.VERSION, url, data)
     refresher.start()
     updates.start()
-    if not args.stay:
-        threading.Thread(target=watchdog, args=(app, srv), name="watchdog", daemon=True).start()
+    threading.Thread(target=watchdog, args=(app, srv, args.stay), name="watchdog", daemon=True).start()
     if not args.no_window:
         open_window(url)
     try:
@@ -103,18 +99,13 @@ def serve(data: Path, args):
         log.info("Stopped")
 
 
-def watchdog(app: App, srv):
+def watchdog(app: App, srv, stay=False):
     while True:
         time.sleep(5)
-        now = time.monotonic()
-        if app.bye_at is not None and now - app.bye_at > CLOSE_GRACE:
+        reason = app.windows.shutdown_reason(stay=stay)
+        if reason:
             break
-        if app.last_heartbeat is None:
-            if now - app.started > STARTUP_GRACE:
-                break
-        elif now - app.last_heartbeat > IDLE_LIMIT:
-            break
-    log.info("No windows open; shutting down")
+    log.info("%s; shutting down", reason)
     srv.shutdown()
 
 
