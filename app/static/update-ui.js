@@ -1,5 +1,5 @@
 // User-initiated updates. Release text is never interpreted as HTML or Markdown.
-import { api } from './api.js';
+import { api, WINDOW_ID } from './api.js';
 import { el, iconButton, toast } from './util.js';
 import { openExternal } from './articles.js';
 
@@ -197,7 +197,11 @@ async function probe(m) {
       const bytes = await crypto.subtle.sign('HMAC', key,
         new TextEncoder().encode(`${r.id}\n${r.version}\n${r.port}\n${r.phase}`));
       const signature = Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
-      if (signature === r.proof) { location.reload(); return; }
+      if (signature === r.proof) {
+        sessionStorage.setItem('newsdesk-update-document', WINDOW_ID);
+        location.reload();
+        return;
+      }
     }
   } catch { /* The old server is expected to disappear briefly. */ }
   if (Date.now() - reconnectStarted > 180000) {

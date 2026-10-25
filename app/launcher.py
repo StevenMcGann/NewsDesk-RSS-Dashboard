@@ -85,6 +85,7 @@ def serve(data: Path, args):
     app = App(store, settings, fetcher, refresher, data, updates)
     manager.attach(app)
     srv = create_server(app, args.port)
+    manager.inherit_windows(app.port)
     url = f"http://127.0.0.1:{app.port}/"
     (data / "instance.json").write_text(json.dumps({"port": app.port, "pid": os.getpid()}), encoding="utf-8")
     log.info("NewsDesk %s serving %s (data in %s)", config.VERSION, url, data)

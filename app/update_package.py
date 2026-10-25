@@ -219,6 +219,10 @@ def read_job(path):
         raise ValueError("Invalid staged update location")
     if not parse_version(data.get("version")):
         raise ValueError("Invalid transaction version")
+    windows = data.get("window_ids", [])
+    if not isinstance(windows, list) or len(windows) > 4096 or any(
+            not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value) for value in windows):
+        raise ValueError("Invalid update window registrations")
     return data
 
 

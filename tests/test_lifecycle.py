@@ -41,6 +41,24 @@ class WindowLifetimeTest(unittest.TestCase):
         self.now += 1
         self.assertEqual(self.windows.shutdown_reason(), "All registered windows closed")
 
+    def test_update_inherits_all_paused_documents_and_preserves_close_tracking(self):
+        self.windows.heartbeat("one")
+        self.windows.heartbeat("two")
+        replacement = WindowTracker(clock=lambda: self.now)
+        replacement.inherit(self.windows.open_ids())
+        self.now += 24 * 3600  # Every browser can remain suspended beyond startup grace.
+        self.assertIsNone(replacement.shutdown_reason())
+        replacement.heartbeat("one")
+        replacement.bye("one")
+        self.now += 3600
+        self.assertIsNone(replacement.shutdown_reason())
+        replacement.heartbeat("two")
+        replacement.bye("two")
+        self.now += 25
+        self.assertEqual(replacement.shutdown_reason(), "All registered windows closed")
+        replacement.heartbeat("two")
+        self.assertEqual(replacement.shutdown_reason(), "All registered windows closed")
+
     def test_reload_or_new_window_during_close_grace_keeps_server(self):
         self.windows.heartbeat("old-document")
         self.windows.bye("old-document")

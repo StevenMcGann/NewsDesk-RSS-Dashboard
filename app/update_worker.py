@@ -80,8 +80,9 @@ def launch_app(record, job_path=None):
                             stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
 
 
-def wait_healthy(child, record, timeout=60):
+def wait_healthy(child, record, timeout=60, phase="starting"):
     deadline = time.monotonic() + timeout
+    version = record["version"] if phase == "starting" else record["previous_version"]
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while time.monotonic() < deadline:
         if child.poll() is not None:
@@ -94,14 +95,22 @@ def wait_healthy(child, record, timeout=60):
             with opener.open(f"http://127.0.0.1:{port}/api/ping", timeout=2) as response:
                 ping = json.loads(response.read(16384))
             handshake = ping.get("reconnect") or {}
-            if (ping.get("app") == "newsdesk" and ping.get("version") == record["version"]
-                    and handshake.get("id") == record["id"] and handshake.get("phase") == "starting"
-                    and handshake.get("proof") == proof(record["nonce"], record["id"], record["version"], port, "starting")):
+            if (ping.get("app") == "newsdesk" and ping.get("version") == version
+                    and handshake.get("id") == record["id"] and handshake.get("phase") == phase
+                    and handshake.get("proof") == proof(record["nonce"], record["id"], version, port, phase)):
                 return port
         except (OSError, ValueError, KeyError, TypeError):
             pass
         time.sleep(.2)
     raise InstallError("The replacement app did not pass its startup check")
+
+
+def launch_previous(record, job_path):
+    child = launch_app(record, job_path)
+    port = wait_healthy(child, record, phase="rolled_back")
+    if port != record["port"]:
+        import launcher
+        launcher.open_window(f"http://127.0.0.1:{port}/")
 
 
 def save_result(record, job_path):
@@ -174,7 +183,7 @@ def run(job_path, recover=False):
             record["phase"] = "rolled_back"
             write_record(job_path, record)
             save_result(record, job_path)
-            launch_app(record)
+            launch_previous(record, job_path)
             status("rolled_back")
             return 0
         if record.get("phase") != "prepared" or package_version(Path(record["payload"])) != record["version"]:
@@ -253,7 +262,7 @@ def run(job_path, recover=False):
                 record["phase"] = "rolled_back"
                 write_record(job_path, record)
                 save_result(record, job_path)
-                launch_app(record)
+                launch_previous(record, job_path)
                 status("rolled_back", "The update did not start; your previous version and data were restored")
                 return 1
             except Exception:

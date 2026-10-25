@@ -38,7 +38,10 @@ dependency. The bundled Python runtime runs the temporary update worker.
   restores the application and SQLite/settings snapshot. A failed health-check
   child may be terminated by its owning worker before rollback.
 - Existing windows keep a separate handoff nonce, verify the replacement proof,
-  reload to get a new launch token and restore their view. The nonce is never sent
+  reload to get a new launch token and restore their view. Open document registrations
+  are inherited, and each verified update reload resumes its document ID once, so
+  even every window remaining suspended cannot trigger the first-window timeout.
+  Ordinary reloads keep the usual fresh-document/close-tombstone behavior. The nonce is never sent
   in a public ping request. A changed port gets a fresh-window fallback.
 
 ## Interrupted updates

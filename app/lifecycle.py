@@ -33,6 +33,19 @@ class WindowTracker:
         with self._lock:
             self._started = self._clock()
 
+    def open_ids(self):
+        with self._lock:
+            return sorted(self._open)
+
+    def inherit(self, identifiers):
+        """Transfer known-open documents across an authenticated update restart."""
+        identifiers = {window_id(value) for value in identifiers}
+        with self._lock:
+            self._open.update(identifiers - self._closed)
+            if self._open:
+                self._seen_window = True
+                self._closed_at = None
+
     def heartbeat(self, identifier):
         identifier = window_id(identifier)
         with self._lock:

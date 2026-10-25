@@ -89,9 +89,11 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/state")[0], 200)
 
     def test_index_carries_token_and_security_headers(self):
+        self.app.token = "fixture__launch_token"  # URL-safe random tokens can contain __.
         resp, body = self.call("GET", "/", token=False, raw=True)
         self.assertIn(self.app.token.encode(), body)
-        self.assertNotIn(b"__", body)  # every placeholder filled in
+        self.assertNotIn(b"__API_TOKEN__", body)
+        self.assertNotIn(b"__ICON_VERSION__", body)
         self.assertIn(f'favicon.svg?v={self.srv.icon_version}"'.encode(), body)
         self.assertEqual(len(self.srv.icon_version), 10)
         self.assertEqual(self.call("GET", f"/favicon.svg?v={self.srv.icon_version}", token=False, raw=True)[0].status, 200)

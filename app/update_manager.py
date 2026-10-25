@@ -42,12 +42,14 @@ class UpdateManager:
             except (OSError, ValueError, KeyError, TypeError):
                 pass
         self.health_mode = False
+        self._inherit_windows = bool(handoff)
         if handoff:
             record = read_job(self.handoff)
-            if (Path(record["target"]).resolve() != self.root or record["version"] != config.VERSION
-                    or record.get("phase") != "starting"):
+            starting = record.get("phase") == "starting" and record["version"] == config.VERSION
+            recovering = record.get("phase") == "rolled_back" and record.get("previous_version") == config.VERSION
+            if Path(record["target"]).resolve() != self.root or not (starting or recovering):
                 raise ValueError("The update startup context does not match this application")
-            self.health_mode = True
+            self.health_mode = starting
         checker.manager = self
         self._eligibility = self._installation_reason()
 
@@ -64,6 +66,12 @@ class UpdateManager:
 
     def attach(self, app):
         self._app = app
+
+    def inherit_windows(self, port):
+        if self._inherit_windows:
+            record = read_job(self.handoff)
+            if record.get("port") == port:
+                self._app.windows.inherit(record.get("window_ids", []))
 
     def status(self):
         reason = self._eligibility
@@ -203,6 +211,9 @@ class UpdateManager:
             if not self._app.refresher.pause(120) or not self._app.wait_idle(120):
                 raise ValueError("The app is still finishing work; try the update again later")
             self._check_cancel()
+            reason = self._installation_reason()  # Settings can change during download.
+            if reason:
+                raise ValueError(reason)
             backup = directory / "data-backup"
             backup.mkdir()
             with self._app.store.lock, self._app.settings._lock:
@@ -223,6 +234,7 @@ class UpdateManager:
                           reconnect={"id": record["id"], "nonce": nonce, "version": record["version"],
                                      "previous_version": config.VERSION, "port": self._app.port})
                 record["phase"] = "handoff"
+                record["window_ids"] = self._app.windows.open_ids()
                 write_record(job_path, record)
                 handed_off = True
             # Give foreground windows one status poll to save their view/context.
