@@ -31,6 +31,24 @@ Your feeds, reading history and settings stay on your computer.
 - **Optional in-app updates** with release notes, download progress and a brief restart.
   Feeds, settings, history, shortcuts and your installation location are preserved.
 
+## Screenshots
+
+NewsDesk 1.1.0 with public feeds. Click an image to see it at full size.
+
+**Card grid in dark mode** — browse article thumbnails with folders and unread counts
+in the sidebar.
+
+[![NewsDesk dark theme showing science articles in a card grid with feed folders and unread counts](assets/screenshots/cards-dark.jpg)](assets/screenshots/cards-dark.jpg)
+
+**Article reader** — read beside your feeds, star articles, or save them as Markdown.
+
+[![NewsDesk dark theme with a NASA article open in the reader pane beside the card grid](assets/screenshots/reader-dark.jpg)](assets/screenshots/reader-dark.jpg)
+
+**Compact list in light mode** — scan headlines and previews, grouped under collapsible
+date headers.
+
+[![NewsDesk light theme showing the compact article list grouped by Today and Yesterday](assets/screenshots/list-light.jpg)](assets/screenshots/list-light.jpg)
+
 ## Get started
 
 1. Download `NewsDesk-<version>.zip` from the [latest release](../../releases/latest).
