@@ -10,11 +10,71 @@ let ctx;
 const refs = {};
 const LAYOUTS = [['cards', 'Cards', 'layout-grid'], ['list', 'List', 'list'], ['feed', 'Feed', 'gallery-vertical-end']];
 const GROUPS = [['none', 'None'], ['date', 'Date'], ['feed', 'Feed'], ['date_feed', 'Date + feed']];
+const SIZE_NAMES = ['Smallest', 'Small', 'Default', 'Large', 'Largest'];
+const SIZES = {
+  cards: { '--card-width': [220, 260, 300, 360, 420], '--card-font': [13, 14, 15, 16, 17] },
+  list: { '--row-padding': [6, 9, 12, 16, 20], '--row-font': [12, 13, 14, 15, 16] },
+  feed: { '--feed-width': [620, 740, 860, 1000, 1140], '--feed-hero': [180, 240, 300, 360, 420],
+    '--feed-padding': [12, 16, 20, 24, 28], '--feed-font': [18, 19, 20, 22, 24] },
+};
 const collapsed = new Set(store('collapsedGroups') || []);
 
 function layout() {
   const mode = ctx.state.settings.view_mode;
   return LAYOUTS.some(([v]) => v === mode) ? mode : 'cards';
+}
+
+function sizeIndex(mode) {
+  const value = ctx.state.settings[`${mode}_size`];
+  return Number.isInteger(value) && value >= 0 && value < SIZE_NAMES.length ? value : 2;
+}
+
+function applySize() {
+  const box = document.getElementById('articles');
+  const mode = layout();
+  for (const [name, values] of Object.entries(SIZES[mode])) {
+    box.style.setProperty(name, `${values[sizeIndex(mode)]}px`);
+  }
+}
+
+function sizeControls() {
+  const mode = layout();
+  const label = LAYOUTS.find(([v]) => v === mode)[1];
+  let saving = false;
+  const status = el('span', { class: 'size-value', role: 'status', 'aria-live': 'polite' });
+  const update = () => {
+    const size = sizeIndex(mode);
+    status.textContent = SIZE_NAMES[size];
+    smaller.disabled = saving || size === 0;
+    larger.disabled = saving || size === SIZE_NAMES.length - 1;
+    reset.disabled = saving || size === 2;
+  };
+  const change = async (value) => {
+    if (saving) return;
+    const key = `${mode}_size`;
+    const previous = sizeIndex(mode);
+    saving = true;
+    const pending = ctx.updateSettings({ [key]: value });
+    applySize();
+    update();
+    try {
+      await pending;
+    } catch {
+      ctx.state.settings[key] = previous;
+    } finally {
+      saving = false;
+      applySize();
+      update();
+    }
+  };
+  const smaller = el('button', { type: 'button', class: 'btn small', 'aria-label': `Decrease ${label.toLowerCase()} size`,
+    onclick: () => change(sizeIndex(mode) - 1) }, '−');
+  const larger = el('button', { type: 'button', class: 'btn small', 'aria-label': `Increase ${label.toLowerCase()} size`,
+    onclick: () => change(sizeIndex(mode) + 1) }, '+');
+  const reset = el('button', { type: 'button', class: 'btn small ghost', 'aria-label': `Reset ${label.toLowerCase()} size`,
+    onclick: () => change(2) }, 'Reset');
+  update();
+  return el('div', { class: 'size-controls', role: 'group', 'aria-label': `${label} size` }, smaller, status, larger, reset);
 }
 
 export function init(c) {
@@ -69,6 +129,9 @@ function openViewOptions() {
       'aria-pressed': String(layout() === v),
       onclick: () => { save({ view_mode: v }); render(); openViewOptions(); },
     }, icon(iconName, 14), label))),
+    el('h4', {}, 'Size'),
+    sizeControls(),
+    el('p', { class: 'hint' }, 'Saved separately for each layout.'),
     el('h4', {}, 'Group by'),
     segmented(GROUPS, s.settings.group_by, (v) => { save({ group_by: v }); render({ keepScroll: true }); openViewOptions(); }),
     el('h4', {}, 'Sort'),
@@ -121,6 +184,7 @@ export function render({ keepScroll = false } = {}) {
   const box = document.getElementById('articles');
   const mode = layout();
   box.className = `articles ${mode}`;
+  applySize();
   if (!keepScroll) document.getElementById('articles-scroll').scrollTop = 0;
   box.replaceChildren(...(s.list.items.length ? grouped(s.list.items, mode) : [emptyState()]));
   renderPager();

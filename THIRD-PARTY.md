@@ -6,7 +6,7 @@ All are copied unmodified (icons: path data only) and pinned to the versions bel
 |---|---|---|---|
 | feedparser | 6.0.14 | BSD-2-Clause | `app/vendor/feedparser/` |
 | feedparser-sgmllib | 2.1.0 | PSF-2.0 | `app/vendor/feedparser_sgmllib/` |
-| DOMPurify | 3.4.16 | Apache-2.0 or MPL-2.0 | `app/static/vendor/purify.min.js` |
+| DOMPurify | 3.4.17 | Apache-2.0 or MPL-2.0 | `app/static/vendor/purify.min.js` |
 | @mozilla/readability | 0.6.0 | Apache-2.0 | `app/static/vendor/Readability.js` |
 | Turndown | 7.2.4 | MIT | `app/static/vendor/turndown.js` |
 | Lucide icons | 1.54.0 | ISC | `app/static/icons.js` |

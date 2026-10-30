@@ -6,7 +6,7 @@ from pathlib import Path
 
 APP_NAME = "NewsDesk RSS Dashboard"  # shown to people
 SHORT_NAME = "NewsDesk"  # used for folders and files
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 GITHUB_REPO = "StevenMcGann/NewsDesk-RSS-Dashboard"  # where releases are published
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
@@ -29,6 +29,9 @@ SCHEMA = {
     "block_remote_images": (bool, None, False),
     "theme": (str, ("dark", "light", "system"), "dark"),
     "view_mode": (str, ("cards", "list", "feed"), "cards"),
+    "cards_size": (int, (0, 4), 2),
+    "list_size": (int, (0, 4), 2),
+    "feed_size": (int, (0, 4), 2),
     "group_by": (str, ("none", "date", "feed", "date_feed"), "none"),
     "sort": (str, ("new", "old"), "new"),
     "status_filter": (str, ("all", "unread", "read"), "unread"),

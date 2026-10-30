@@ -267,6 +267,22 @@ class ServerTest(unittest.TestCase):
         status, err = self.call("POST", "/api/opml/import", b"<html/>", headers={"Content-Type": "text/xml"})
         self.assertEqual(status, 400)
 
+    def test_layout_sizes_persist_independently_and_reject_out_of_range(self):
+        keys = ("cards_size", "list_size", "feed_size")
+        before = {key: self.settings.get(key) for key in keys}
+        try:
+            for key in keys:
+                self.assertEqual(self.call("PATCH", "/api/settings", {key: 2})[0], 200)
+            for key, value in zip(keys, (0, 3, 4)):
+                self.assertEqual(self.call("PATCH", "/api/settings", {key: value})[0], 200)
+                for invalid in (-1, 5, "large"):
+                    self.assertEqual(self.call("PATCH", "/api/settings", {key: invalid})[0], 400)
+            reloaded = config.Settings(self.settings.path)
+            self.assertEqual([reloaded.get(key) for key in keys], [0, 3, 4])
+            self.assertEqual(self.call("GET", "/api/state")[1]["settings"]["cards_size"], 0)
+        finally:
+            self.settings.update(before)
+
     def test_settings_validation(self):
         self.assertEqual(self.call("PATCH", "/api/settings", {"page_size": 50})[1]["page_size"], 50)
         self.assertEqual(self.call("PATCH", "/api/settings", {"fetch_mode": "winhttp"})[1]["fetch_mode"], "winhttp")
