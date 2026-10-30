@@ -501,8 +501,12 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .articles.list .group-head:first-child { margin-top: 0; }
 .articles.list .group-head.sub { margin-left: 18px; }
 .seg button .ic { display: inline-grid; vertical-align: -2px; margin-right: 5px; }
-.size-controls { display: flex; align-items: center; gap: 8px; }
-.size-value { flex: 1; min-width: 60px; text-align: center; font-size: 12.5px; }
+.size-controls { display: flex; align-items: center; gap: 8px; width: max-content; }
+.size-stepper { align-items: stretch; }
+.size-stepper > :not(:first-child) { border-left: 1px solid var(--border-strong); }
+.size-stepper button { min-width: 30px; }
+.size-stepper button:disabled { opacity: 0.4; cursor: default; }
+.size-value { display: grid; place-items: center; width: 76px; font-size: 12.5px; color: var(--text-muted); }
 
 .empty { grid-column: 1 / -1; text-align: center; padding: 70px 20px; color: var(--text-muted); }
 .empty .ic { color: var(--text-faint); margin-bottom: 10px; }

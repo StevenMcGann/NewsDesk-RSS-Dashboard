@@ -67,14 +67,15 @@ function sizeControls() {
       update();
     }
   };
-  const smaller = el('button', { type: 'button', class: 'btn small', 'aria-label': `Decrease ${label.toLowerCase()} size`,
+  const smaller = el('button', { type: 'button', 'aria-label': `Decrease ${label.toLowerCase()} size`,
     onclick: () => change(sizeIndex(mode) - 1) }, '−');
-  const larger = el('button', { type: 'button', class: 'btn small', 'aria-label': `Increase ${label.toLowerCase()} size`,
+  const larger = el('button', { type: 'button', 'aria-label': `Increase ${label.toLowerCase()} size`,
     onclick: () => change(sizeIndex(mode) + 1) }, '+');
   const reset = el('button', { type: 'button', class: 'btn small ghost', 'aria-label': `Reset ${label.toLowerCase()} size`,
     onclick: () => change(2) }, 'Reset');
   update();
-  return el('div', { class: 'size-controls', role: 'group', 'aria-label': `${label} size` }, smaller, status, larger, reset);
+  return el('div', { class: 'size-controls', role: 'group', 'aria-label': `${label} size` },
+    el('div', { class: 'seg size-stepper' }, smaller, status, larger), reset);
 }
 
 export function init(c) {
