@@ -1,12 +1,14 @@
 """Daily check of the bundled third-party components.
 
 For each component in tools/dependencies.json:
-- known vulnerabilities in the pinned version, from the OSV database (osv.dev);
+- known vulnerabilities in the pinned version, from OSV (including PSF runtime advisories
+  matched against the official CPython release commit);
 - whether a newer version exists, and whether it is at least two weeks old, the
   project's rule before adopting a release.
 
 Writes a Markdown report (stdout, --report file, and the GitHub job summary) and sets the
-job output attention=true when something needs doing. Exits 1 only for vulnerabilities.
+job output attention=true when something needs doing. Exits 1 for vulnerabilities and
+2 for incomplete checks. Security findings are reported without the 14-day update delay.
 Usage:  py -3 tools/check_dependencies.py [--report report.md]
 """
 import argparse
@@ -15,6 +17,7 @@ import os
 import re
 import sys
 import urllib.request
+from urllib.error import HTTPError
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -41,16 +44,92 @@ def version_key(text):
     return tuple(int(p) for p in re.findall(r"\d+", text)[:4])
 
 
+def python_commit(version):
+    """Resolve the official release tag; CPython advisories use Git ranges, not PyPI."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError(f"unsupported Python release version: {version}")
+    base = "https://api.github.com/repos/python/cpython/git"
+    obj = get_json(f"{base}/ref/tags/v{version}")["object"]
+    for _ in range(5):
+        sha = obj["sha"]
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("invalid CPython release object SHA")
+        if obj["type"] == "commit":
+            return sha
+        if obj["type"] != "tag":
+            raise ValueError("CPython release tag does not resolve to a commit")
+        obj = get_json(f"{base}/tags/{sha}")["object"]
+    raise ValueError("too many annotated CPython release tags")
+
+
+def osv_results(queries):
+    """Return complete results in query order, refusing incomplete/malformed responses."""
+    collected = [[] for _ in queries]
+    pending = list(enumerate(queries))
+    tokens = [set() for _ in queries]
+    for _ in range(10):
+        batch = get_json("https://api.osv.dev/v1/querybatch", {"queries": [q for _, q in pending]})
+        results = batch["results"]
+        if not isinstance(results, list) or len(results) != len(pending):
+            raise ValueError("OSV returned an incomplete result batch")
+        following = []
+        for (index, query), result in zip(pending, results):
+            if not isinstance(result, dict) or "error" in result:
+                raise ValueError("OSV returned an invalid query result")
+            vulns = result.get("vulns", [])  # OSV uses {} for a complete, empty result.
+            if not isinstance(vulns, list) or any(
+                    not isinstance(v, dict) or not isinstance(v.get("id"), str)
+                    or not re.fullmatch(r"[A-Za-z0-9-]+", v["id"]) for v in vulns):
+                raise ValueError("OSV returned invalid vulnerability IDs")
+            collected[index].extend(vulns)
+            token = result.get("next_page_token")
+            if token:
+                if not isinstance(token, str) or token in tokens[index]:
+                    raise ValueError("OSV returned an invalid/repeated page token")
+                tokens[index].add(token)
+                following.append((index, dict(query, page_token=token)))
+        if not following:
+            return collected
+        pending = following
+    raise ValueError("OSV pagination did not finish")
+
+
 def vulnerabilities(components):
-    """{component name: [(id, summary)]} for components OSV knows about."""
-    queryable = [c for c in components if c["ecosystem"] in ("PyPI", "npm")]
-    batch = get_json("https://api.osv.dev/v1/querybatch", {"queries": [
-        {"package": {"name": c["package"], "ecosystem": c["ecosystem"]}, "version": c["version"]} for c in queryable]})
+    """{component name: [(id, summary)]}, including the bundled CPython runtime."""
+    queries = []
+    for c in components:
+        if c["ecosystem"] == "python.org":
+            queries.append({"commit": python_commit(c["version"])})
+        elif c["ecosystem"] in ("PyPI", "npm"):
+            queries.append({"package": {"name": c["package"], "ecosystem": c["ecosystem"]},
+                            "version": c["version"]})
+        else:
+            raise ValueError(f"unsupported vulnerability ecosystem: {c['ecosystem']}")
     found = {}
-    for component, result in zip(queryable, batch.get("results", [])):
-        for vuln in result.get("vulns", []):
+    for component, result in zip(components, osv_results(queries)):
+        seen = set()
+        # Prefer PSF records over duplicate CVE aliases for the same runtime finding.
+        for vuln in sorted(result, key=lambda v: (not v["id"].startswith("PSF-"), v["id"])):
             detail = get_json(f"https://api.osv.dev/v1/vulns/{vuln['id']}")
-            found.setdefault(component["name"], []).append((vuln["id"], detail.get("summary") or "(no summary)"))
+            if detail["id"] != vuln["id"]:
+                raise ValueError("OSV returned a mismatched advisory")
+            if detail.get("withdrawn"):
+                continue
+            aliases = detail.get("aliases", [])
+            if not isinstance(aliases, list) or any(not isinstance(a, str) for a in aliases):
+                raise ValueError("OSV returned invalid advisory aliases")
+            ids = {detail["id"], *aliases}
+            if seen.intersection(ids):
+                continue
+            seen.update(ids)
+            summary = detail.get("summary") or detail.get("details") or "(no summary)"
+            if not isinstance(summary, str):
+                raise ValueError("OSV returned invalid advisory text")
+            summary = " ".join(summary.split())[:500]
+            cves = [a for a in aliases if a.startswith("CVE-")]
+            if cves:
+                summary = f"{', '.join(cves)}: {summary}"
+            found.setdefault(component["name"], []).append((vuln["id"], summary))
     return found
 
 
@@ -75,9 +154,10 @@ def latest(component):
                 _, headers = get(f"https://www.python.org/ftp/python/{version}/python-{version}-embed-amd64.zip",
                                  method="HEAD")
                 return version, parsedate_to_datetime(headers["Last-Modified"])
-            except OSError:
-                continue
-        return component["version"], None
+            except HTTPError as e:
+                if e.code != 404:
+                    raise
+        raise ValueError("no Python embeddable release could be verified")
     raise ValueError(f"unknown ecosystem {eco}")
 
 
@@ -90,8 +170,13 @@ def main() -> int:
     now = datetime.now(timezone.utc)
 
     # Advisories reviewed as not affecting NewsDesk's configuration are listed, not failed on.
-    vulns, reviewed = {}, {}
-    for name, items in vulnerabilities(components).items():
+    vulns, reviewed, errors = {}, {}, []
+    try:
+        findings = vulnerabilities(components)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        findings = {}
+        errors.append(f"Vulnerability coverage incomplete: {e}")
+    for name, items in findings.items():
         notes = next(c for c in components if c["name"] == name).get("reviewed", {})
         for vid, summary in items:
             target = reviewed if vid in notes else vulns
@@ -100,11 +185,14 @@ def main() -> int:
     for c in components:
         try:
             newest, released = latest(c)
-        except (OSError, KeyError, ValueError) as e:
+        except (OSError, KeyError, ValueError, TypeError) as e:
             rows.append(f"| {c['name']} | {c['version']} | ? | could not check: {e} |")
+            errors.append(f"Version check incomplete for {c['name']}: {e}")
             continue
         if version_key(newest) <= version_key(c["version"]):
             status = "up to date"
+        elif c["name"] in vulns:
+            status, ready = f"**security review: {newest} available; do not wait 14 days**", ready + 1
         elif released and now - released >= WAIT:
             status, ready = f"**update to {newest}** (released {released:%Y-%m-%d})", ready + 1
         else:
@@ -112,14 +200,20 @@ def main() -> int:
         rows.append(f"| {c['name']} | {c['version']} | {newest} | {status} |")
 
     lines = ["## Bundled dependencies", ""]
+    if errors:
+        lines += ["### Incomplete checks — attention required", "", *[f"- {e}" for e in errors], ""]
     if vulns:
         lines += ["### Known vulnerabilities in the pinned versions", ""]
         for name, items in vulns.items():
             lines += [f"- **{name}**: " + "; ".join(f"[{vid}](https://osv.dev/vulnerability/{vid}) {summary}"
                                                   for vid, summary in items)]
         lines.append("")
-    else:
-        lines += ["No unreviewed vulnerabilities in the pinned versions (source: [osv.dev](https://osv.dev)).", ""]
+    elif not errors:
+        lines += ["No unreviewed vulnerabilities reported by OSV for the checked pins, including the bundled "
+                  "CPython release commit (PSF runtime advisories). This is not a guarantee that none exist.", ""]
+    lines += ["Sources: [OSV](https://osv.dev), including the "
+              "[PSF advisory database](https://github.com/psf/advisory-database); Python is queried by its "
+              "[official release tag's commit](https://github.com/python/cpython/tags).", ""]
     if reviewed:
         lines += ["### Reviewed advisories that don't affect NewsDesk", ""]
         for name, items in reviewed.items():
@@ -137,8 +231,8 @@ def main() -> int:
             f.write(report + "\n")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-            f.write(f"attention={'true' if vulns or ready else 'false'}\n")
-    return 1 if vulns else 0
+            f.write(f"attention={'true' if vulns or ready or errors else 'false'}\n")
+    return 2 if errors else 1 if vulns else 0
 
 
 if __name__ == "__main__":

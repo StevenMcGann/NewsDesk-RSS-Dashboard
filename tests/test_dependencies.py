@@ -14,8 +14,6 @@ class ManifestTest(unittest.TestCase):
         documented = dict(re.findall(r"^\| ([^|]+?) \| ([\d.]+) \|", table, re.M))
         aliases = {"Lucide icons": "Lucide icons", "@mozilla/readability": "@mozilla/readability"}
         for name, component in COMPONENTS.items():
-            if component["ecosystem"] == "python.org":
-                continue
             self.assertEqual(documented.get(aliases.get(name, name)), component["version"], name)
 
     def test_matches_the_build_script(self):

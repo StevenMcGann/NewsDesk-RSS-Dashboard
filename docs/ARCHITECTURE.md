@@ -241,9 +241,20 @@ Feed content and web pages are untrusted.
 | `dependencies.yml` Dependency check | Daily at 07:07 UTC | `tools/check_dependencies.py` checks each component in `tools/dependencies.json` against [OSV](https://osv.dev) and its registry, and keeps one `dependencies` issue open while something needs doing. |
 
 How the dependency check reports:
-- **Fails** on any advisory not yet reviewed.
+- **Fails** on any advisory not yet reviewed. Runtime vulnerability coverage resolves
+  the official CPython release tag to its commit and queries OSV's Git matching,
+  including Python Software Foundation advisories. Python is not queried as a PyPI package.
+- **Fails with an incomplete-check report** when tag resolution, vulnerability data,
+  pagination or version checks fail. Incomplete coverage keeps the tracking issue open
+  and cannot be reported as a clean check. OSV results reflect published/indexed data,
+  not a guarantee that no vulnerabilities exist.
 - **Opens the issue** when an update has been out for at least 14 days.
 - **Lists reviewed advisories but doesn't fail on them.** A reviewed advisory is one recorded with its reason under `"reviewed"` in `dependencies.json`.
+- **Reports security findings immediately**, without waiting for the normal 14-day
+  adoption period. A security exception still requires review and explicit authorization;
+  the checker never installs updates. On October 30, 2026, Python 3.14.10 was authorized
+  early to address compromised eMudhra CA keys (CVE-2026-115557). Lucide remains subject
+  to the ordinary waiting period.
 
 Other details:
 - **Dependabot** (`.github/dependabot.yml`) keeps the pinned actions current, with the same 14-day cooldown. Every action is pinned to a commit SHA, and workflows default to read-only tokens.

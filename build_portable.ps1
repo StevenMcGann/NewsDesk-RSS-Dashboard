@@ -18,9 +18,9 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$PythonVersion = '3.14.8',
-    # SHA-256 published on https://www.python.org/downloads/release/python-3148/
-    [string]$PythonSha256 = 'a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310',
+    [string]$PythonVersion = '3.14.10',
+    # SHA-256 published on https://www.python.org/downloads/release/python-31410/
+    [string]$PythonSha256 = '90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159',
     [switch]$Test
 )
 $ErrorActionPreference = 'Stop'

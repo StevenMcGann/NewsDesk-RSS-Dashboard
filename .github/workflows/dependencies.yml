@@ -45,5 +45,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           for number in $(gh issue list --label dependencies --state open --json number --jq '.[].number'); do
-            gh issue close "$number" --comment "All bundled components are current and have no known vulnerabilities."
+            gh issue close "$number" --comment "The dependency check completed with no unreviewed vulnerabilities reported by OSV (including CPython commit queries) and no updates currently eligible under the 14-day policy. Newer versions may still be deferred; this is not a guarantee that no vulnerabilities exist."
           done
