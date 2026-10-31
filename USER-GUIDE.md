@@ -91,7 +91,7 @@ The [recovery guide](docs/UPDATING.md#interrupted-updates) describes the recover
 | Save an article as a file | Click the download icon in the reader. Files go to **Documents\NewsDesk**; you can change this in Settings. |
 | Find something | Use the search box. The filter button narrows to unread or read, dates, starred or tags. |
 | Switch between cards, a list and the one-column feed | Click the ☰ button at the top right. It also groups articles by date and/or feed and changes the sort order. Click a group's header to fold it away. |
-| Resize articles | In the ☰ View options menu, use **−** and **+** under **Size**. Each layout remembers its own size; **Reset** restores that layout's default. Cards start wider and titles wrap in Cards and List. List size changes text and spacing; Feed size changes column width, title size, spacing and image height. |
+| Resize articles | In the ☰ View options menu, use **−** and **+** under **Size**. Each layout remembers its own size; **Reset** restores that layout's default. Cards keep their selected width when the reader opens or closes, shrinking only when the pane is too narrow to fit. Titles wrap in Cards and List. List size changes text and spacing; Feed size changes column width, title size, spacing and image height. |
 | Bring feeds from another reader | Export an OPML file from it, then click the upload button at the top left and choose **Import from a file**. |
 
 Keyboard: **j** and **k** for next and previous, **m** for read or unread, **s** to star,
