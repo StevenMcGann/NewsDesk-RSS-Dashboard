@@ -37,7 +37,11 @@ class UpdateManager:
                 result = json.loads((self.data_dir / "update-result.json").read_text(encoding="utf-8"))
                 previous = Path(result["job"])
                 record = read_job(previous)
-                if Path(record["target"]).resolve() == self.root and record.get("phase") in ("committed", "rolled_back"):
+                # Report a finished update only to the version it left running. After a
+                # manual reinstall, an old rollback notice would wrongly say it failed.
+                running = {"committed": record.get("version"),
+                           "rolled_back": record.get("previous_version")}.get(record.get("phase"))
+                if Path(record["target"]).resolve() == self.root and running == config.VERSION:
                     self.handoff = previous
             except (OSError, ValueError, KeyError, TypeError):
                 pass

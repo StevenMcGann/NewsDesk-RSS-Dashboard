@@ -30,8 +30,21 @@ dependency. The bundled Python runtime runs the temporary update worker.
   SQLite/settings snapshot is taken.
 - The worker runs from the verified package in the private update cache, outside
   the replaced folder. It holds a per-installation lock, waits up to 120 seconds
-  for the original process handle to exit, then swaps sibling folders. It never
-  terminates the original app or an unrelated process.
+  for the original process handle to exit, then swaps sibling folders. Each folder
+  rename is retried for up to 30 seconds while Windows reports it in use, because
+  security scanners, indexers and sync clients briefly hold just-written or just-run
+  files. It never terminates the original app or an unrelated process. Helper
+  processes NewsDesk starts (PowerShell downloads, Edge) use their own folder as the
+  working folder, so none of them keeps the application folder in use.
+- The app, the worker and the restarted app coordinate through small JSON records
+  that each replaces atomically. Windows refuses that replace while another process
+  has the file open, and these records are polled several times a second, so each
+  write retries for up to 10 seconds. While waiting for the handoff, the worker
+  watches `job.json` through its folder listing and opens it only after it changes,
+  because versions up to 1.1.4 write the handoff record without retrying.
+- An update result is reported only by the version it left running (the new version
+  after a commit, the previous one after a rollback), once across windows and
+  launches. A later manual install does not repeat an old rollback notice.
 - The replacement runs with user writes and background work deferred. Its instance
   PID, version and per-update HMAC proof must pass within 60 seconds. Only then is
   the transaction committed and normal work enabled. Startup/migration failure

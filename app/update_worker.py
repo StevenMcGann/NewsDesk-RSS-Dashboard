@@ -117,6 +117,20 @@ def save_result(record, job_path):
     write_record(Path(record["data_dir"]) / "update-result.json", {"job": str(job_path)})
 
 
+def listed_stamp(path):
+    """Modification time and size of path from its folder listing, or None.
+
+    On Windows the listing comes from the directory itself, so unlike reading the
+    file this never holds it open while another process is replacing it.
+    """
+    with os.scandir(path.parent) as entries:
+        for entry in entries:
+            if entry.name == path.name:
+                info = entry.stat(follow_symlinks=False)
+                return info.st_mtime_ns, info.st_size
+    return None
+
+
 def cleanup_previous(target, current):
     """Best effort; only complete updater records for this exact installation."""
     base = cache_root().resolve()
@@ -197,8 +211,21 @@ def run(job_path, recover=False):
         transaction.prepare()
         status("ready")
         deadline = time.monotonic() + 300
+        seen, recheck = None, 0.0
         while time.monotonic() < deadline:
-            changed = read_job(job_path)
+            # Open job.json only once the app has replaced it. A worker reading it at
+            # the moment the app writes "handoff" makes that write fail on Windows, and
+            # versions up to 1.1.4 don't retry (issue #10). Reread now and then anyway.
+            try:
+                stamp = listed_stamp(job_path)
+                if stamp is not None and stamp == seen and time.monotonic() < recheck:
+                    time.sleep(.1)
+                    continue
+                changed = read_job(job_path)
+            except OSError:
+                time.sleep(.1)
+                continue
+            seen, recheck = stamp, time.monotonic() + 5
             if any(changed.get(k) != record.get(k) for k in ("target", "data_dir", "payload", "nonce", "version", "parent_pid")):
                 raise InstallError("The update transaction changed unexpectedly")
             if changed.get("phase") == "handoff":

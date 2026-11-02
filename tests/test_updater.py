@@ -1,6 +1,6 @@
 """Updater trust boundaries and replacement/recovery behavior, without live GitHub."""
 import base64
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -264,6 +264,82 @@ class StreamingDownloadTest(unittest.TestCase):
         f.close()
 
 
+class FakeClock:
+    """Stands in for installer.time so rename retries run instantly."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+    @classmethod
+    def patch(cls):
+        return mock.patch.object(installer, "time", cls())
+
+
+class RecordTest(unittest.TestCase):
+    """The app, the update worker and the restarted app share small JSON records."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "job.json"
+        package.write_record(self.path, {"phase": "prepared"})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def leftovers(self):
+        return sorted(p.name for p in self.path.parent.glob("*.tmp"))
+
+    def test_replace_retries_while_another_process_has_the_record_open(self):
+        replace = os.replace
+        busy = {"count": 3}
+        def denied(source, target):
+            if busy["count"]:
+                busy["count"] -= 1
+                raise PermissionError("[WinError 5] Access is denied")
+            return replace(source, target)
+        with mock.patch.object(package.os, "replace", denied), mock.patch.object(package, "time", FakeClock()):
+            package.write_record(self.path, {"phase": "handoff"})
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "handoff"})
+        self.assertEqual(self.leftovers(), [])
+
+    def test_replace_gives_up_after_its_window_and_keeps_the_old_record(self):
+        clock = FakeClock()
+        with mock.patch.object(package.os, "replace", side_effect=PermissionError("denied")), \
+                mock.patch.object(package, "time", clock), self.assertRaises(PermissionError):
+            package.write_record(self.path, {"phase": "handoff"})
+        self.assertGreaterEqual(clock.now, package.REPLACE_RETRY_SECONDS)
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "prepared"})
+        self.assertEqual(self.leftovers(), [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows file-sharing rules")
+    def test_open_record_blocks_a_single_replace_but_not_a_retried_one(self):
+        # Issue #10's "Access is denied": the worker had job.json open at the moment
+        # the app replaced it.
+        reader = open(self.path, "rb")
+        try:
+            with self.assertRaises(PermissionError):
+                package.write_record(self.path, {"phase": "handoff"}, retry_seconds=0)
+            threading.Timer(0.3, reader.close).start()
+            package.write_record(self.path, {"phase": "handoff"})
+        finally:
+            reader.close()
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "handoff"})
+        self.assertEqual(self.leftovers(), [])
+
+    def test_listing_shows_a_replaced_record_without_opening_it(self):
+        before = update_worker.listed_stamp(self.path)
+        time.sleep(0.01)
+        package.write_record(self.path, {"phase": "handoff", "window_ids": []})
+        self.assertNotEqual(update_worker.listed_stamp(self.path), before)
+        self.assertIsNone(update_worker.listed_stamp(self.path.with_name("missing.json")))
+
+
 class ReplacementTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -298,19 +374,63 @@ class ReplacementTest(unittest.TestCase):
         self.assertEqual(manifest, {"version": "99.0.0", "shortcuts": shortcuts})
         self.assertTrue((self.target / "Uninstall NewsDesk.bat").is_file())
 
+    def locked(self, path, times):
+        """Make renames of `path` fail as if a scanner held a file open, `times` times."""
+        rename = Path.rename
+        remaining = {"count": times}
+        def fake(source, target):
+            if source == path and remaining["count"]:
+                remaining["count"] -= 1
+                raise PermissionError("[WinError 32] The process cannot access the file")
+            return rename(source, target)
+        return mock.patch.object(Path, "rename", fake), remaining
+
     def test_swap_failure_and_running_process_do_not_destroy_old_app(self):
         self.txn.prepare()
-        rename = Path.rename
-        def fail_new(path, target):
-            if path == self.txn.staging:
-                raise PermissionError("locked")
-            return rename(path, target)
-        with mock.patch.object(Path, "rename", fail_new), self.assertRaises(PermissionError):
+        lock, _ = self.locked(self.txn.staging, 10_000)
+        with lock, FakeClock.patch() as clock, self.assertRaises(PermissionError):
             self.txn.apply()
+        self.assertGreaterEqual(clock.now, installer.RENAME_RETRY_SECONDS - 2)
         self.assertEqual(package.package_version(self.target), "1.1.0")
         if os.name == "nt":
             with mock.patch.object(installer, "running_from", return_value=[123]), self.assertRaises(installer.InstallError):
                 self.txn.apply()
+
+    def test_briefly_locked_folders_are_retried_not_rolled_back(self):
+        # Endpoint security and indexers hold just-closed files for a moment; a work PC
+        # rolled back 1.1.0 -> 1.1.4 when the single rename attempt hit that window.
+        self.txn.prepare()
+        for path in (self.txn.target, self.txn.staging):
+            with self.subTest(locked=path.name):
+                lock, remaining = self.locked(path, 3)
+                with lock, FakeClock.patch():
+                    self.txn.apply()
+                self.assertEqual(remaining["count"], 0)
+                self.assertEqual(package.package_version(self.target), "99.0.0")
+                self.txn.rollback()  # Restore the original layout for the next case.
+                self.assertEqual(package.package_version(self.target), "1.1.0")
+                self.txn.failed.rename(self.txn.staging)
+
+    def test_rollback_retries_a_briefly_locked_replacement(self):
+        self.txn.prepare()
+        self.txn.apply()
+        lock, remaining = self.locked(self.txn.target, 2)
+        with lock, FakeClock.patch():
+            self.txn.rollback()
+        self.assertEqual(remaining["count"], 0)
+        self.assertEqual(package.package_version(self.target), "1.1.0")
+        self.assertEqual(package.package_version(self.txn.failed), "99.0.0")
+
+    def test_only_in_use_errors_are_retried(self):
+        self.txn.prepare()
+        calls = []
+        def missing(source, target):
+            calls.append(source)
+            raise FileNotFoundError("gone")
+        with mock.patch.object(Path, "rename", missing), FakeClock.patch() as clock, \
+                self.assertRaises(FileNotFoundError):
+            self.txn.apply()
+        self.assertEqual((len(calls), clock.now), (1, 0))
 
     def test_data_snapshot_restores_database_and_settings_only(self):
         data = self.root / "user data"
@@ -335,8 +455,13 @@ class ReplacementTest(unittest.TestCase):
 
 
 class WorkerTransactionTest(unittest.TestCase):
-    def run_worker(self, *, fail_apply=False, fail_after_commit=False):
-        """Exercise worker control flow, including the durable commit boundary."""
+    def run_worker(self, *, fail_apply=False, fail_after_commit=False, stamps=None, reads=()):
+        """Exercise worker control flow, including the durable commit boundary.
+
+        `stamps` stands in for job.json's folder listing during the handoff wait.
+        `reads` are job.json reads before the handoff: field overrides of the record,
+        or an exception to raise. self.reads counts read_job calls.
+        """
         with tempfile.TemporaryDirectory() as tmp, ExitStack() as patches:
             root = Path(tmp)
             (root / "data-backup").mkdir()
@@ -351,7 +476,11 @@ class WorkerTransactionTest(unittest.TestCase):
             txn.backup.exists.return_value = False
             if fail_apply:
                 txn.apply.side_effect = PermissionError("locked application file")
-            patches.enter_context(mock.patch.object(update_worker, "read_job", side_effect=[record, changed]))
+            self.reads = patches.enter_context(
+                mock.patch.object(update_worker, "read_job", side_effect=[
+                    record, *(r if isinstance(r, BaseException) else dict(record, **r) for r in reads), changed]))
+            if stamps is not None:
+                patches.enter_context(mock.patch.object(update_worker, "listed_stamp", side_effect=stamps))
             patches.enter_context(mock.patch.object(update_worker, "AppReplacement", return_value=txn))
             patches.enter_context(mock.patch.object(update_worker, "eligibility", return_value=None))
             patches.enter_context(mock.patch.object(update_worker, "package_version", side_effect=["99.0.0", "1.1.0", "1.1.0"]))
@@ -368,7 +497,8 @@ class WorkerTransactionTest(unittest.TestCase):
             saved = patches.enter_context(mock.patch.object(update_worker, "save_result"))
             if fail_after_commit:
                 saved.side_effect = OSError("result pointer is locked")
-            with self.assertLogs("update_worker", level="ERROR"):
+            failing = fail_apply or fail_after_commit
+            with self.assertLogs("update_worker", level="ERROR") if failing else nullcontext():
                 code = update_worker.run(job)
             return code, txn, child, restore, launch, record
 
@@ -379,6 +509,19 @@ class WorkerTransactionTest(unittest.TestCase):
         restore.assert_called_once()
         launch.assert_called_once()
         child.terminate.assert_not_called()
+
+    def test_handoff_wait_reads_job_only_after_the_app_replaces_it(self):
+        # Issue #10: the app's "handoff" write failed with "Access is denied" because
+        # the worker had job.json open; 1.1.0-1.1.4 don't retry that write.
+        code, txn, *_ = self.run_worker(stamps=[(1, 10), (1, 10), (1, 10), (2, 11)], reads=[{}])
+        self.assertEqual(code, 0)
+        txn.apply.assert_called_once()
+        self.assertEqual(self.reads.call_count, 3)  # Start, first look, after the change.
+
+    def test_handoff_wait_survives_a_briefly_unreadable_job(self):
+        code, txn, *_ = self.run_worker(reads=[PermissionError("[WinError 5] Access is denied")])
+        self.assertEqual(code, 0)
+        txn.apply.assert_called_once()
 
     def test_result_write_failure_after_commit_never_rolls_back_or_kills_child(self):
         code, txn, child, restore, launch, _ = self.run_worker(fail_after_commit=True)
@@ -425,6 +568,38 @@ class ManagerTest(unittest.TestCase):
                 downloader.assert_not_called()
             self.assertEqual(manager.status()["job"]["phase"], "failed")
             app.windows.request_quit.assert_not_called()
+
+    def finished_job(self, cache, root, phase, version="1.1.4", previous="1.1.0"):
+        directory = cache / ("d" * 32)
+        directory.mkdir(parents=True)
+        package.write_record(directory / "job.json", {
+            "format": 1, "id": directory.name, "nonce": "e" * 64, "target": str(root),
+            "payload": str(directory / "extracted" / "NewsDesk"), "data_dir": str(cache.parent / "data"),
+            "version": version, "previous_version": previous, "phase": phase, "port": 1234})
+        return directory / "job.json"
+
+    def last_result(self, phase, running):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"LOCALAPPDATA": tmp}), \
+                mock.patch.object(update_manager, "eligibility", return_value=None), \
+                mock.patch.object(config, "VERSION", running):
+            data, root = Path(tmp) / "data", Path(tmp) / "app"
+            data.mkdir()
+            job = self.finished_job(package.cache_root(), root, phase)
+            (data / "update-result.json").write_text(json.dumps({"job": str(job)}))
+            checker = updates.UpdateChecker(FakeFetcher(release()), FakeSettings(), data)
+            manager = update_manager.UpdateManager(checker, data, root=root)
+            return manager.status()["last_result"]
+
+    def test_update_result_is_reported_by_the_version_it_left_running(self):
+        self.assertEqual(self.last_result("committed", "1.1.4")["phase"], "committed")
+        self.assertEqual(self.last_result("rolled_back", "1.1.0")["phase"], "rolled_back")
+
+    def test_manual_install_after_a_rollback_does_not_report_a_failure(self):
+        # Issue #10: 1.1.0 -> 1.1.4 rolled back; after a manual 1.1.4 install the app
+        # still said the update had failed.
+        self.assertIsNone(self.last_result("rolled_back", "1.1.4"))
+        self.assertIsNone(self.last_result("committed", "1.1.5"))
 
     def test_reconnect_proof_binds_job_version_port_and_phase(self):
         nonce = "a" * 64

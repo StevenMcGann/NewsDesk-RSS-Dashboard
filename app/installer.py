@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import re
+import time
 from ctypes import wintypes
 from pathlib import Path
 
@@ -141,6 +142,28 @@ def running_from(folder: Path) -> list:
 
 
 RUNNING = "NewsDesk is still running. Close its window, wait about 30 seconds, then try again."
+RENAME_RETRY_SECONDS = 30
+
+
+def rename_folder(source: Path, destination: Path, retry_seconds: float = RENAME_RETRY_SECONDS):
+    """Rename a folder, retrying while Windows reports it in use.
+
+    Windows refuses to rename a folder while any file inside it is open. Antivirus and
+    endpoint-security scanners, search indexers and sync clients open newly written or
+    just-run files for a few seconds, so a single attempt right after NewsDesk exits
+    can fail even though nothing is really using the app.
+    """
+    deadline = time.monotonic() + retry_seconds
+    delay = 0.25
+    while True:
+        try:
+            source.rename(destination)
+            return
+        except PermissionError:
+            if time.monotonic() + delay > deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 2.0)
 
 
 # ---- install ---------------------------------------------------------------------------
@@ -198,6 +221,8 @@ def copy_app(source: Path, target: Path):
 class AppReplacement:
     """Updater-owned sibling directories; the previous app survives until commit."""
 
+    retry_seconds = RENAME_RETRY_SECONDS
+
     def __init__(self, source, target, version, identifier):
         if not re.fullmatch(r"[0-9a-f]{32}", identifier):
             raise InstallError("Invalid update transaction")
@@ -235,11 +260,11 @@ class AppReplacement:
             raise InstallError(RUNNING)
         if not self.staging.is_dir() or self.backup.exists():
             raise InstallError("The staged update or backup location is invalid")
-        self.target.rename(self.backup)
+        rename_folder(self.target, self.backup, self.retry_seconds)
         try:
-            self.staging.rename(self.target)
+            rename_folder(self.staging, self.target, self.retry_seconds)
         except OSError:
-            self.backup.rename(self.target)
+            rename_folder(self.backup, self.target, self.retry_seconds)
             raise
 
     def rollback(self):
@@ -250,8 +275,8 @@ class AppReplacement:
         if self.target.exists():
             if self.failed.exists():
                 raise InstallError("Recovery destination exists; recovery files have been preserved")
-            self.target.rename(self.failed)
-        self.backup.rename(self.target)
+            rename_folder(self.target, self.failed, self.retry_seconds)
+        rename_folder(self.backup, self.target, self.retry_seconds)
 
 
 def install(source: Path, target: Path, shortcut_dirs: list) -> list:

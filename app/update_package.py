@@ -10,6 +10,7 @@ import secrets
 import shutil
 import stat
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -199,13 +200,32 @@ def cache_root():
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".cache"))) / "NewsDesk" / "Updates"
 
 
-def write_record(path, data):
+REPLACE_RETRY_SECONDS = 10
+
+
+def write_record(path, data, retry_seconds=REPLACE_RETRY_SECONDS):
     temporary = path.with_name(path.name + "." + secrets.token_hex(8) + ".tmp")
     with temporary.open("x", encoding="utf-8") as stream:
         json.dump(data, stream, ensure_ascii=True, indent=2)
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    # Windows refuses to replace a file while another process has it open ("Access is
+    # denied"). The app, the update worker and the restarted app poll these records
+    # several times a second, and security scanners open freshly written files, so a
+    # single attempt can lose that race (issue #10). Readers hold them for moments.
+    deadline = time.monotonic() + retry_seconds
+    while True:
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+                raise
+            time.sleep(0.05)
 
 
 def read_job(path):

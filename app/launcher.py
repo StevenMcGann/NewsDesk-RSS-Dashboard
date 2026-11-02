@@ -186,7 +186,9 @@ def open_window(url: str):
         except Exception:
             pass
         try:
-            subprocess.Popen([edge, f"--app={url}", *size])
+            # If this starts Edge, it keeps running; don't leave it in the app folder,
+            # which an in-app update must be able to rename.
+            subprocess.Popen([edge, f"--app={url}", *size], cwd=os.path.dirname(edge))
             return
         except OSError:
             log.exception("Could not start Edge")

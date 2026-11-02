@@ -435,10 +435,12 @@ class _Worker:
                   .replace("__TOTAL__", str(TOTAL_TIMEOUT)))
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
         try:
+            # Not the inherited app folder: a process's working folder can't be renamed,
+            # and this one can outlive a request, which would block in-app updates.
             self.proc = subprocess.Popen(
                 [exe, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                cwd=os.path.dirname(exe), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except OSError as e:
             raise FetchError(f"Could not start Windows PowerShell: {e}", network=True) from None
 
