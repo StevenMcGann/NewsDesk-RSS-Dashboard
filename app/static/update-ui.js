@@ -6,6 +6,7 @@ import { openExternal } from './articles.js';
 const ACTIVE = new Set(['checking', 'downloading', 'verifying', 'staging', 'preparing', 'restarting']);
 const MARKER = 'newsdesk-update-reconnect';
 const CONTEXT = 'newsdesk-update-view';
+const RESULT = 'newsdesk-update-result';
 const PHASES = { checking: 'Checking the selected release…', downloading: 'Downloading update…',
   verifying: 'Verifying download…', staging: 'Checking the package…', preparing: 'Preparing to restart…',
   restarting: 'Installing update and restarting…', cancelled: 'Update cancelled.',
@@ -91,11 +92,23 @@ export function observe(status) {
     if (m?.id === job.id) localStorage.removeItem(MARKER);
   }
   const result = status?.last_result;
-  if (result && sessionStorage.getItem('newsdesk-update-result') !== result.id) {
-    sessionStorage.setItem('newsdesk-update-result', result.id);
+  if (result && !resultShown(result.id)) {
     toast(result.phase === 'committed' ? `Updated to NewsDesk ${result.version}.`
       : 'The update did not start. Your previous version and data were restored.', { error: result.phase !== 'committed' });
   }
+}
+
+// The result stays available after the restart, so every new window would repeat it.
+// localStorage is shared by all windows and launches; this page remembers it otherwise.
+let shownResult;
+function resultShown(id) {
+  if (shownResult === id) return true;
+  shownResult = id;
+  try {
+    if (localStorage.getItem(RESULT) === id) return true;
+    localStorage.setItem(RESULT, id);
+  } catch { /* Storage is optional; this window still shows the result only once. */ }
+  return false;
 }
 
 function button(label, action, className = '') {

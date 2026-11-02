@@ -184,9 +184,11 @@ class ReleaseDownloader:
 
     def _windows(self, url, path, size, deadline, cancel, progress):
         encoded = base64.b64encode(_PS_DOWNLOAD.encode("utf-16-le")).decode("ascii")
-        proc = subprocess.Popen([_powershell_exe(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        exe = _powershell_exe()
+        # Outside the app folder, which the update worker must be able to rename.
+        proc = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                                cwd=os.path.dirname(exe), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         lines = queue.Queue()
         def receive():
             for line in proc.stdout:

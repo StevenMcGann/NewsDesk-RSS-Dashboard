@@ -608,6 +608,16 @@ class NativeTransportTest(unittest.TestCase):
             srv.server_close()
 
 
+class HelperProcessTest(unittest.TestCase):
+    def test_powershell_helper_does_not_hold_the_app_folder(self):
+        # A long-lived child inheriting the app folder as its working folder would stop
+        # the update worker from renaming that folder.
+        exe = os.path.join("C:\\", "Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+        with mock.patch.object(fetcher.subprocess, "Popen") as popen:
+            fetcher._Worker(exe)
+        self.assertEqual(popen.call_args.kwargs["cwd"], os.path.dirname(exe))
+
+
 @unittest.skipUnless(os.environ.get("RSS_LIVE_TESTS") == "1", "set RSS_LIVE_TESTS=1 to hit the network")
 class LiveTest(unittest.TestCase):
     def test_all_methods_fetch_a_real_feed(self):
