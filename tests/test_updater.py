@@ -341,7 +341,7 @@ class ReplacementTest(unittest.TestCase):
         # Endpoint security and indexers hold just-closed files for a moment; a work PC
         # rolled back 1.1.0 -> 1.1.4 when the single rename attempt hit that window.
         self.txn.prepare()
-        for path in (self.target, self.txn.staging):
+        for path in (self.txn.target, self.txn.staging):
             with self.subTest(locked=path.name):
                 lock, remaining = self.locked(path, 3)
                 with lock, FakeClock.patch():
@@ -355,7 +355,7 @@ class ReplacementTest(unittest.TestCase):
     def test_rollback_retries_a_briefly_locked_replacement(self):
         self.txn.prepare()
         self.txn.apply()
-        lock, remaining = self.locked(self.target, 2)
+        lock, remaining = self.locked(self.txn.target, 2)
         with lock, FakeClock.patch():
             self.txn.rollback()
         self.assertEqual(remaining["count"], 0)
