@@ -1,6 +1,6 @@
 """Updater trust boundaries and replacement/recovery behavior, without live GitHub."""
 import base64
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -281,6 +281,65 @@ class FakeClock:
         return mock.patch.object(installer, "time", cls())
 
 
+class RecordTest(unittest.TestCase):
+    """The app, the update worker and the restarted app share small JSON records."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "job.json"
+        package.write_record(self.path, {"phase": "prepared"})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def leftovers(self):
+        return sorted(p.name for p in self.path.parent.glob("*.tmp"))
+
+    def test_replace_retries_while_another_process_has_the_record_open(self):
+        replace = os.replace
+        busy = {"count": 3}
+        def denied(source, target):
+            if busy["count"]:
+                busy["count"] -= 1
+                raise PermissionError("[WinError 5] Access is denied")
+            return replace(source, target)
+        with mock.patch.object(package.os, "replace", denied), mock.patch.object(package, "time", FakeClock()):
+            package.write_record(self.path, {"phase": "handoff"})
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "handoff"})
+        self.assertEqual(self.leftovers(), [])
+
+    def test_replace_gives_up_after_its_window_and_keeps_the_old_record(self):
+        clock = FakeClock()
+        with mock.patch.object(package.os, "replace", side_effect=PermissionError("denied")), \
+                mock.patch.object(package, "time", clock), self.assertRaises(PermissionError):
+            package.write_record(self.path, {"phase": "handoff"})
+        self.assertGreaterEqual(clock.now, package.REPLACE_RETRY_SECONDS)
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "prepared"})
+        self.assertEqual(self.leftovers(), [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows file-sharing rules")
+    def test_open_record_blocks_a_single_replace_but_not_a_retried_one(self):
+        # Issue #10's "Access is denied": the worker had job.json open at the moment
+        # the app replaced it.
+        reader = open(self.path, "rb")
+        try:
+            with self.assertRaises(PermissionError):
+                package.write_record(self.path, {"phase": "handoff"}, retry_seconds=0)
+            threading.Timer(0.3, reader.close).start()
+            package.write_record(self.path, {"phase": "handoff"})
+        finally:
+            reader.close()
+        self.assertEqual(json.loads(self.path.read_text()), {"phase": "handoff"})
+        self.assertEqual(self.leftovers(), [])
+
+    def test_listing_shows_a_replaced_record_without_opening_it(self):
+        before = update_worker.listed_stamp(self.path)
+        time.sleep(0.01)
+        package.write_record(self.path, {"phase": "handoff", "window_ids": []})
+        self.assertNotEqual(update_worker.listed_stamp(self.path), before)
+        self.assertIsNone(update_worker.listed_stamp(self.path.with_name("missing.json")))
+
+
 class ReplacementTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -396,8 +455,13 @@ class ReplacementTest(unittest.TestCase):
 
 
 class WorkerTransactionTest(unittest.TestCase):
-    def run_worker(self, *, fail_apply=False, fail_after_commit=False):
-        """Exercise worker control flow, including the durable commit boundary."""
+    def run_worker(self, *, fail_apply=False, fail_after_commit=False, stamps=None, reads=()):
+        """Exercise worker control flow, including the durable commit boundary.
+
+        `stamps` stands in for job.json's folder listing during the handoff wait.
+        `reads` are job.json reads before the handoff: field overrides of the record,
+        or an exception to raise. self.reads counts read_job calls.
+        """
         with tempfile.TemporaryDirectory() as tmp, ExitStack() as patches:
             root = Path(tmp)
             (root / "data-backup").mkdir()
@@ -412,7 +476,11 @@ class WorkerTransactionTest(unittest.TestCase):
             txn.backup.exists.return_value = False
             if fail_apply:
                 txn.apply.side_effect = PermissionError("locked application file")
-            patches.enter_context(mock.patch.object(update_worker, "read_job", side_effect=[record, changed]))
+            self.reads = patches.enter_context(
+                mock.patch.object(update_worker, "read_job", side_effect=[
+                    record, *(r if isinstance(r, BaseException) else dict(record, **r) for r in reads), changed]))
+            if stamps is not None:
+                patches.enter_context(mock.patch.object(update_worker, "listed_stamp", side_effect=stamps))
             patches.enter_context(mock.patch.object(update_worker, "AppReplacement", return_value=txn))
             patches.enter_context(mock.patch.object(update_worker, "eligibility", return_value=None))
             patches.enter_context(mock.patch.object(update_worker, "package_version", side_effect=["99.0.0", "1.1.0", "1.1.0"]))
@@ -429,7 +497,8 @@ class WorkerTransactionTest(unittest.TestCase):
             saved = patches.enter_context(mock.patch.object(update_worker, "save_result"))
             if fail_after_commit:
                 saved.side_effect = OSError("result pointer is locked")
-            with self.assertLogs("update_worker", level="ERROR"):
+            failing = fail_apply or fail_after_commit
+            with self.assertLogs("update_worker", level="ERROR") if failing else nullcontext():
                 code = update_worker.run(job)
             return code, txn, child, restore, launch, record
 
@@ -440,6 +509,19 @@ class WorkerTransactionTest(unittest.TestCase):
         restore.assert_called_once()
         launch.assert_called_once()
         child.terminate.assert_not_called()
+
+    def test_handoff_wait_reads_job_only_after_the_app_replaces_it(self):
+        # Issue #10: the app's "handoff" write failed with "Access is denied" because
+        # the worker had job.json open; 1.1.0-1.1.4 don't retry that write.
+        code, txn, *_ = self.run_worker(stamps=[(1, 10), (1, 10), (1, 10), (2, 11)], reads=[{}])
+        self.assertEqual(code, 0)
+        txn.apply.assert_called_once()
+        self.assertEqual(self.reads.call_count, 3)  # Start, first look, after the change.
+
+    def test_handoff_wait_survives_a_briefly_unreadable_job(self):
+        code, txn, *_ = self.run_worker(reads=[PermissionError("[WinError 5] Access is denied")])
+        self.assertEqual(code, 0)
+        txn.apply.assert_called_once()
 
     def test_result_write_failure_after_commit_never_rolls_back_or_kills_child(self):
         code, txn, child, restore, launch, _ = self.run_worker(fail_after_commit=True)

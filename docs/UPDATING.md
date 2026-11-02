@@ -36,6 +36,12 @@ dependency. The bundled Python runtime runs the temporary update worker.
   files. It never terminates the original app or an unrelated process. Helper
   processes NewsDesk starts (PowerShell downloads, Edge) use their own folder as the
   working folder, so none of them keeps the application folder in use.
+- The app, the worker and the restarted app coordinate through small JSON records
+  that each replaces atomically. Windows refuses that replace while another process
+  has the file open, and these records are polled several times a second, so each
+  write retries for up to 10 seconds. While waiting for the handoff, the worker
+  watches `job.json` through its folder listing and opens it only after it changes,
+  because versions up to 1.1.4 write the handoff record without retrying.
 - An update result is reported only by the version it left running (the new version
   after a commit, the previous one after a rollback), once across windows and
   launches. A later manual install does not repeat an old rollback notice.
