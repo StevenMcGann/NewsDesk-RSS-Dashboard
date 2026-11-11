@@ -251,7 +251,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
   user-select: none;
 }
 .sb-brand img { display: block; flex: none; }
-.sb-toolbar { display: flex; align-items: center; gap: 2px; padding: 10px 8px 8px; border-bottom: 1px solid var(--border); }
+.sb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 10px 8px 8px; border-bottom: 1px solid var(--border); }
 .sb-toolbar .grow { flex: 1; }
 .sb-scroll { flex: 1; overflow: auto; padding: 6px 6px 16px; }
 .sb-section {

@@ -24,6 +24,8 @@ jobs:
           python-version: "3.12"
       - name: Check bundled components
         id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -B tools/check_dependencies.py --report report.md
       - name: Open or update the tracking issue
         if: always() && steps.check.outputs.attention == 'true'

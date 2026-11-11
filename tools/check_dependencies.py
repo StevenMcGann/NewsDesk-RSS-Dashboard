@@ -18,6 +18,7 @@ import re
 import sys
 import urllib.request
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -28,10 +29,24 @@ WAIT = timedelta(days=14)
 UA = {"User-Agent": "NewsDesk-dependency-check (+https://github.com/StevenMcGann/NewsDesk-RSS-Dashboard)"}
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward a GitHub API credential to a redirected destination.
+        return None
+
+
 def get(url, data=None, method=None):
     headers = dict(UA, **({"Content-Type": "application/json"} if data else {}))
+    parts = urlsplit(url)
+    github = parts.scheme == "https" and parts.netloc == "api.github.com"
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if github and token:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    # Other registries and OSV never receive the token. Refuse API redirects even
+    # without a token so authenticated and local checks resolve the same source.
+    open_url = urllib.request.build_opener(NoRedirect()).open if github else urllib.request.urlopen
+    with open_url(req, timeout=30) as resp:
         return resp.read(), resp.headers
 
 
@@ -95,42 +110,48 @@ def osv_results(queries):
 
 
 def vulnerabilities(components):
-    """{component name: [(id, summary)]}, including the bundled CPython runtime."""
-    queries = []
+    """(findings, coverage errors), retaining results when another lookup fails."""
+    found, errors = {}, []
     for c in components:
-        if c["ecosystem"] == "python.org":
-            queries.append({"commit": python_commit(c["version"])})
-        elif c["ecosystem"] in ("PyPI", "npm"):
-            queries.append({"package": {"name": c["package"], "ecosystem": c["ecosystem"]},
-                            "version": c["version"]})
-        else:
-            raise ValueError(f"unsupported vulnerability ecosystem: {c['ecosystem']}")
-    found = {}
-    for component, result in zip(components, osv_results(queries)):
+        try:
+            if c["ecosystem"] == "python.org":
+                query = {"commit": python_commit(c["version"])}
+            elif c["ecosystem"] in ("PyPI", "npm"):
+                query = {"package": {"name": c["package"], "ecosystem": c["ecosystem"]},
+                         "version": c["version"]}
+            else:
+                raise ValueError(f"unsupported vulnerability ecosystem: {c['ecosystem']}")
+            result = osv_results([query])[0]
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            errors.append(f"Vulnerability coverage incomplete for {c['name']}: {e}")
+            continue
         seen = set()
         # Prefer PSF records over duplicate CVE aliases for the same runtime finding.
         for vuln in sorted(result, key=lambda v: (not v["id"].startswith("PSF-"), v["id"])):
-            detail = get_json(f"https://api.osv.dev/v1/vulns/{vuln['id']}")
-            if detail["id"] != vuln["id"]:
-                raise ValueError("OSV returned a mismatched advisory")
-            if detail.get("withdrawn"):
-                continue
-            aliases = detail.get("aliases", [])
-            if not isinstance(aliases, list) or any(not isinstance(a, str) for a in aliases):
-                raise ValueError("OSV returned invalid advisory aliases")
-            ids = {detail["id"], *aliases}
-            if seen.intersection(ids):
-                continue
-            seen.update(ids)
-            summary = detail.get("summary") or detail.get("details") or "(no summary)"
-            if not isinstance(summary, str):
-                raise ValueError("OSV returned invalid advisory text")
-            summary = " ".join(summary.split())[:500]
-            cves = [a for a in aliases if a.startswith("CVE-")]
-            if cves:
-                summary = f"{', '.join(cves)}: {summary}"
-            found.setdefault(component["name"], []).append((vuln["id"], summary))
-    return found
+            try:
+                detail = get_json(f"https://api.osv.dev/v1/vulns/{vuln['id']}")
+                if detail["id"] != vuln["id"]:
+                    raise ValueError("OSV returned a mismatched advisory")
+                if detail.get("withdrawn"):
+                    continue
+                aliases = detail.get("aliases", [])
+                if not isinstance(aliases, list) or any(not isinstance(a, str) for a in aliases):
+                    raise ValueError("OSV returned invalid advisory aliases")
+                ids = {detail["id"], *aliases}
+                if seen.intersection(ids):
+                    continue
+                summary = detail.get("summary") or detail.get("details") or "(no summary)"
+                if not isinstance(summary, str):
+                    raise ValueError("OSV returned invalid advisory text")
+                summary = " ".join(summary.split())[:500]
+                cves = [a for a in aliases if a.startswith("CVE-")]
+                if cves:
+                    summary = f"{', '.join(cves)}: {summary}"
+                seen.update(ids)
+                found.setdefault(c["name"], []).append((vuln["id"], summary))
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                errors.append(f"Vulnerability coverage incomplete for {c['name']} ({vuln['id']}): {e}")
+    return found, errors
 
 
 def latest(component):
@@ -172,7 +193,8 @@ def main() -> int:
     # Advisories reviewed as not affecting NewsDesk's configuration are listed, not failed on.
     vulns, reviewed, errors = {}, {}, []
     try:
-        findings = vulnerabilities(components)
+        findings, coverage_errors = vulnerabilities(components)
+        errors.extend(coverage_errors)
     except (OSError, ValueError, KeyError, TypeError) as e:
         findings = {}
         errors.append(f"Vulnerability coverage incomplete: {e}")

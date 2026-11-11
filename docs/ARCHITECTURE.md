@@ -172,7 +172,7 @@ User data in `%APPDATA%\NewsDesk`:
 - Each page creates its own random document ID, registers it in its heartbeat, and includes it in the authenticated `pagehide` close beacon. A page entering the back/forward cache does not send a close beacon; `pageshow` refreshes it when restored.
 - A registered window stays open even if its JavaScript timers pause indefinitely. Browser timer silence, minimization, Windows locking and sleep do not prove that a window closed.
 - The server exits 25 s after the last registered document explicitly closes. A new document registering during that grace cancels shutdown. Closing one window cannot expire a second paused window. Duplicate closes and late heartbeats cannot restart the grace or revive a closed document.
-- The first-window startup grace remains 120 s. `--stay` suppresses automatic startup/close shutdown. Authenticated **Settings > Help > Quit NewsDesk** works in either mode.
+- The first-window startup grace remains 120 s. `--stay` suppresses automatic startup/close shutdown. The power button beside Settings (or at the top right when the sidebar is hidden) and **Settings > Help > Quit NewsDesk** share the same confirmation and authenticated Quit action, which works in either mode.
 - If a browser crashes or drops a close beacon, a registration can remain. Relaunch NewsDesk and choose **Quit NewsDesk** before updating/uninstalling. The app deliberately retains the server rather than guessing that a silent window has gone away.
 - A second launch finds the running server through `instance.lock` and `instance.json` and opens another window.
 - Lifecycle transitions are locked across HTTP handler threads. Shutdown logs distinguish an unconnected first window, all registered windows closing, and explicit Quit. The Quit endpoint retains the ordinary launch-token and Host/Origin checks.
@@ -239,6 +239,15 @@ Feed content and web pages are untrusted.
 | `ci.yml` Tests | Every push to main and PR, plus daily at 06:23 UTC | Windows unit tests on Python 3.12/3.14. PR/manual runs also build with the verified bundled runtime and exercise portable, installed and failed-startup rollback transactions offline; the ZIP, checksum and attended test script are kept as a 14-day candidate artifact. Daily/manual live checks cover all three download methods and starter feeds; a 403/429 from a cloud runner is only a warning. Daily ZIP/checksum artifacts last 7 days. |
 | `codeql.yml` CodeQL | Every push and PR, plus daily | `security-extended` queries for Python and JavaScript. Vendored code and tests are excluded (`.github/codeql/codeql-config.yml`). Results appear in the Security tab. |
 | `dependencies.yml` Dependency check | Daily at 07:07 UTC | `tools/check_dependencies.py` checks each component in `tools/dependencies.json` against [OSV](https://osv.dev) and its registry, and keeps one `dependencies` issue open while something needs doing. |
+
+The checker authenticates CPython tag lookups using `GITHUB_TOKEN` (or `GH_TOKEN`
+locally), only for `https://api.github.com`, and refuses redirects there so credentials
+cannot reach another destination. Other registries and OSV receive no GitHub token.
+Each component is queried independently; failed lookups and advisory details retain
+the other findings, mark coverage incomplete, and keep the tracking issue open.
+The manifest records the static review of CVE-2026-124249: NewsDesk's shipped clients
+do not use the shared Python cookie jar required by that advisory. Reassess this
+annotation if Python cookie processing is introduced.
 
 How the dependency check reports:
 - **Fails** on any advisory not yet reviewed. Runtime vulnerability coverage resolves

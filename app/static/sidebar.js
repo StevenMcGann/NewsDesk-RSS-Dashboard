@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { ago, el, favicon, fmt, fullDate, icon, iconButton, menu, setVar, toast } from './util.js';
 import * as dialogs from './dialogs.js';
-import { openExternal } from './articles.js';
+import { openExternal, renderHeader } from './articles.js';
 
 let ctx;
 let drag = null;
@@ -16,6 +16,7 @@ export function init(c) {
     iconButton('upload', 'Import or export feeds', () => dialogs.importExport()),
     el('span', { class: 'grow' }),
     iconButton('settings', 'Settings', () => dialogs.settings()),
+    iconButton('power', 'Quit NewsDesk', () => dialogs.quit()),
     iconButton('panel-left', 'Hide sidebar', () => toggleSidebar()),
   );
   setupRootDrop(document.getElementById('sb-root'));
@@ -25,6 +26,7 @@ export function toggleSidebar() {
   const collapsed = !ctx.state.settings.sidebar_collapsed;
   ctx.state.settings.sidebar_collapsed = collapsed;
   ctx.applyLayout();
+  renderHeader();
   ctx.updateSettings({ sidebar_collapsed: collapsed }, { quiet: true }).catch(() => {});
 }
 
