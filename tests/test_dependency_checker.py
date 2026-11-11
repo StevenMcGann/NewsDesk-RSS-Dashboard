@@ -7,9 +7,11 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from email.message import Message
 from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
+from urllib.response import addinfourl
 
 from _path import ROOT
 
@@ -24,6 +26,46 @@ SHA = "a" * 40
 class Output(io.StringIO):
     def reconfigure(self, **kwargs):
         pass
+
+
+class AuthenticationTest(unittest.TestCase):
+    def test_only_exact_https_github_api_gets_credentials(self):
+        for url in ("https://api.osv.dev/v1/querybatch", "https://pypi.org/pypi/feedparser/json",
+                    "https://registry.npmjs.org/dompurify", "https://www.python.org/ftp/python/",
+                    "http://api.github.com/x", "https://api.github.com.evil.test/x",
+                    "https://api.github.com@evil.test/x"):
+            with self.subTest(url=url), mock.patch.dict(os.environ, {"GITHUB_TOKEN": "secret"}), \
+                    mock.patch.object(checker.urllib.request, "urlopen") as open_url:
+                checker.get(url)
+                self.assertIsNone(open_url.call_args.args[0].get_header("Authorization"))
+        for variable in ("GITHUB_TOKEN", "GH_TOKEN"):
+            with self.subTest(variable=variable), mock.patch.dict(os.environ,
+                    {"GITHUB_TOKEN": "", "GH_TOKEN": "", variable: "secret"}), \
+                    mock.patch.object(checker.urllib.request, "build_opener") as build:
+                checker.get("https://api.github.com/repos/python/cpython/git/ref/tags/v3.14.10")
+                self.assertEqual(build.return_value.open.call_args.args[0].get_header("Authorization"),
+                                 "Bearer secret")
+
+    def test_github_redirects_cannot_forward_token(self):
+        for destination in ("https://evil.test/", "http://api.github.com/x", "https://api.github.com/x"):
+            requests = []
+            class Transport(checker.urllib.request.HTTPSHandler):
+                def https_open(self, request):
+                    requests.append(request)
+                    headers = Message()
+                    headers["Location"] = destination
+                    response = addinfourl(io.BytesIO(b""), headers, request.full_url, 302)
+                    response.msg = "Found"
+                    return response
+            opener = checker.urllib.request.build_opener(Transport(), checker.NoRedirect())
+            with self.subTest(destination=destination), \
+                    mock.patch.dict(os.environ, {"GITHUB_TOKEN": "secret"}), \
+                    mock.patch.object(checker.urllib.request, "build_opener", return_value=opener):
+                with self.assertRaises(HTTPError) as error:
+                    checker.get("https://api.github.com/repos/python/cpython/git/ref/tags/v3.14.10")
+                self.assertEqual(error.exception.code, 302)
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0].get_header("Authorization"), "Bearer secret")
 
 
 class RuntimeQueryTest(unittest.TestCase):
@@ -68,7 +110,8 @@ class RuntimeQueryTest(unittest.TestCase):
         responses = [{"results": [{"vulns": [{"id": "PSF-2026-46"}]}]}, detail]
         with mock.patch.object(checker, "python_commit", return_value=SHA), \
                 mock.patch.object(checker, "get_json", side_effect=responses) as get:
-            found = checker.vulnerabilities([PYTHON])
+            found, errors = checker.vulnerabilities([PYTHON])
+        self.assertEqual(errors, [])
         self.assertEqual(get.call_args_list[0], mock.call(
             "https://api.osv.dev/v1/querybatch", {"queries": [{"commit": SHA}]}))
         self.assertIn("CVE-2026-115557", found["Python"][0][1])
@@ -76,7 +119,7 @@ class RuntimeQueryTest(unittest.TestCase):
     def test_package_queries_still_work_and_empty_results_are_valid(self):
         component = {"name": "DOMPurify", "ecosystem": "npm", "package": "dompurify", "version": "3.4.17"}
         with mock.patch.object(checker, "get_json", return_value={"results": [{}]}) as get:
-            self.assertEqual(checker.vulnerabilities([component]), {})
+            self.assertEqual(checker.vulnerabilities([component]), ({}, []))
         self.assertEqual(get.call_args.args[1]["queries"][0], {
             "package": {"name": "dompurify", "ecosystem": "npm"}, "version": "3.4.17"})
 
@@ -107,11 +150,51 @@ class RuntimeQueryTest(unittest.TestCase):
         with mock.patch.object(checker, "python_commit", return_value=SHA), \
                 mock.patch.object(checker, "osv_results", return_value=[records]), \
                 mock.patch.object(checker, "get_json", side_effect=detail):
-            self.assertEqual(len(checker.vulnerabilities([PYTHON])["Python"]), 1)
+            found, errors = checker.vulnerabilities([PYTHON])
+            self.assertEqual(len(found["Python"]), 1)
+            self.assertEqual(errors, [])
+
+    def test_failed_python_lookup_preserves_findings_before_and_after_it(self):
+        components = [{"name": name, "ecosystem": "npm", "package": name, "version": "1.0"}
+                      for name in ("first", "last")]
+        detail = {"id": "GHSA-test", "summary": "Security fix"}
+        with mock.patch.object(checker, "python_commit", side_effect=OSError("rate limited")), \
+                mock.patch.object(checker, "osv_results", return_value=[[{"id": detail["id"]}]]), \
+                mock.patch.object(checker, "get_json", return_value=detail):
+            found, errors = checker.vulnerabilities([components[0], PYTHON, components[1]])
+        self.assertEqual(set(found), {"first", "last"})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Python: rate limited", errors[0])
+
+    def test_failed_advisory_does_not_erase_other_findings(self):
+        records = [{"id": "GHSA-first"}, {"id": "GHSA-middle"}, {"id": "GHSA-last"}]
+        def detail(url):
+            vid = url.rsplit("/", 1)[-1]
+            if vid == "GHSA-last":
+                raise OSError("unavailable")
+            return {"id": vid, "summary": "Security fix"}
+        with mock.patch.object(checker, "python_commit", return_value=SHA), \
+                mock.patch.object(checker, "osv_results", return_value=[records]), \
+                mock.patch.object(checker, "get_json", side_effect=detail):
+            found, errors = checker.vulnerabilities([PYTHON])
+        self.assertEqual([vid for vid, _ in found["Python"]], ["GHSA-first", "GHSA-middle"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("GHSA-last", errors[0])
+
+    def test_failed_osv_query_does_not_skip_next_component(self):
+        component = {"name": "DOMPurify", "ecosystem": "npm", "package": "dompurify", "version": "3.4.17"}
+        detail = {"id": "GHSA-test", "summary": "Security fix"}
+        with mock.patch.object(checker, "python_commit", return_value=SHA), \
+                mock.patch.object(checker, "osv_results", side_effect=[ValueError("invalid result"), [[detail]]]), \
+                mock.patch.object(checker, "get_json", return_value=detail):
+            found, errors = checker.vulnerabilities([PYTHON, component])
+        self.assertEqual(set(found), {"DOMPurify"})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Python: invalid result", errors[0])
 
 
 class ReportTest(unittest.TestCase):
-    def run_report(self, findings=None, vuln_error=None, latest_error=None):
+    def run_report(self, findings=None, vuln_error=None, latest_error=None, coverage_errors=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest = root / "manifest.json"
@@ -122,7 +205,8 @@ class ReportTest(unittest.TestCase):
                     mock.patch.object(sys, "argv", ["check_dependencies"]), \
                     mock.patch.object(sys, "stdout", stdout), \
                     mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": ""}), \
-                    mock.patch.object(checker, "vulnerabilities", return_value=findings or {}, side_effect=vuln_error), \
+                    mock.patch.object(checker, "vulnerabilities", return_value=(findings or {}, coverage_errors or []),
+                                      side_effect=vuln_error), \
                     mock.patch.object(checker, "latest", side_effect=latest_error,
                                       return_value=("3.14.10", datetime.now(timezone.utc))):
                 code = checker.main()
@@ -147,6 +231,15 @@ class ReportTest(unittest.TestCase):
         code, report, output = self.run_report(latest_error=OSError("offline"))
         self.assertEqual(code, 2)
         self.assertIn("Version check incomplete", report)
+        self.assertNotIn("No unreviewed vulnerabilities", report)
+        self.assertIn("attention=true", output)
+
+    def test_partial_coverage_displays_findings_and_keeps_issue_open(self):
+        code, report, output = self.run_report({"Python": [("PSF-2026-46", "Security fix")]},
+            coverage_errors=["Vulnerability coverage incomplete for another component: offline"])
+        self.assertEqual(code, 2)
+        self.assertIn("PSF-2026-46", report)
+        self.assertIn("coverage incomplete", report)
         self.assertNotIn("No unreviewed vulnerabilities", report)
         self.assertIn("attention=true", output)
 

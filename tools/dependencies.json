@@ -12,6 +12,9 @@
     {"name": "@mozilla/readability", "ecosystem": "npm", "package": "@mozilla/readability", "version": "0.6.0"},
     {"name": "Turndown", "ecosystem": "npm", "package": "turndown", "version": "7.2.4"},
     {"name": "Lucide icons", "ecosystem": "npm", "package": "lucide-static", "version": "1.54.0"},
-    {"name": "Python (embeddable, bundled in the zip)", "ecosystem": "python.org", "package": "python", "version": "3.14.10"}
+    {"name": "Python (embeddable, bundled in the zip)", "ecosystem": "python.org", "package": "python", "version": "3.14.10",
+     "reviewed": {
+       "CVE-2026-124249": "Requires a shared Python CookieJar processing expired Set-Cookie headers. NewsDesk's Python fetcher has an explicit handler list without HTTPCookieProcessor (app/fetcher.py); feeds.py parses an already-fetched BytesIO stream. Update and loopback clients also install no cookie handler, and Windows transports do not use Python cookiejar. Reassess if Python cookie handling is added."
+     }}
   ]
 }

@@ -62,6 +62,13 @@ export function confirm({ title, message, confirmLabel = 'OK', danger = false })
   });
 }
 
+export async function quit() {
+  if (!await confirm({ title: 'Quit NewsDesk?',
+    message: 'Stop NewsDesk and background checks for all open windows? Your feeds and reading history are kept.',
+    confirmLabel: 'Quit NewsDesk' })) return;
+  try { await ctx.quit(); } catch (e) { toast(e.message, { error: true }); }
+}
+
 // Ask for one value; `save` runs before closing so server errors show inside the dialog.
 function prompt({ title, label, value = '', placeholder = '', hint, confirmLabel = 'Save', save }) {
   return new Promise((resolve) => {
@@ -509,12 +516,9 @@ export function settings() {
     }
   }, 'small');
   const app = ctx.state.data.app;
-  const quit = button('Quit NewsDesk', async () => {
+  const quitButton = button('Quit NewsDesk', () => {
     dlg.close();
-    if (!await confirm({ title: 'Quit NewsDesk?',
-      message: 'Stop NewsDesk and background checks for all open windows? Your feeds and reading history are kept.',
-      confirmLabel: 'Quit NewsDesk' })) return;
-    try { await ctx.quit(); } catch (e) { toast(e.message, { error: true }); }
+    quit();
   }, 'small');
   const dlg = dialog({
     title: 'Settings',
@@ -546,7 +550,7 @@ export function settings() {
         stack('Check the connection', 'Downloads a test feed with each method and reports which works.', el('div', {}, test), report)),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Tags'), tagEditor(() => { listDirty = true; })),
       el('section', { class: 'settings-section' }, el('h3', {}, 'Help'),
-        row('Quit NewsDesk', 'Stop the app and background checks for all windows.', quit),
+        row('Quit NewsDesk', 'Stop the app and background checks for all windows.', quitButton),
         row('Keyboard shortcuts', null, shortcutsBtn),
         row('Your data', app.data_dir, button('Open folder', () => api.post('/api/open-folder', { which: 'data' }).catch((e) => toast(e.message, { error: true })), 'small')),
         row('Check for new versions', 'Daily checks only notify you. Update opens release notes before you choose to download and install.',

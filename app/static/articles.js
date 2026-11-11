@@ -81,6 +81,7 @@ function sizeControls() {
 export function init(c) {
   ctx = c;
   refs.showSidebar = iconButton('panel-left', 'Show sidebar', () => toggleSidebar(), 'hidden');
+  refs.quit = iconButton('power', 'Quit NewsDesk', () => dialogs.quit(), 'hidden');
   refs.title = el('h1', {});
   refs.sub = el('span', { class: 'sub' });
   refs.search = el('input', { id: 'search', type: 'search', placeholder: 'Search articles  ( / )', 'aria-label': 'Search articles' });
@@ -102,13 +103,14 @@ export function init(c) {
     refs.showSidebar,
     el('div', { class: 'head-title' }, refs.title, refs.sub),
     el('div', { class: 'search' }, icon('search', 15), refs.search),
-    refs.filter, refs.view, refs.markAll);
+    refs.filter, refs.view, refs.markAll, refs.quit);
 }
 
 export function renderHeader() {
   const s = ctx.state;
   const f = s.filters;
   refs.showSidebar.classList.toggle('hidden', !s.settings.sidebar_collapsed);
+  refs.quit.classList.toggle('hidden', !s.settings.sidebar_collapsed);
   refs.title.textContent = ctx.viewTitle();
   document.title = `${ctx.viewTitle()} · NewsDesk`;
   const status = { unread: 'Unread', read: 'Read', all: 'All' }[f.status];

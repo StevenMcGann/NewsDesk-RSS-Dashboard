@@ -23,8 +23,10 @@ registers nothing with Windows. Afterwards you can delete the folder you unzippe
 
 Closing the last NewsDesk window normally stops the app after about 25 seconds.
 It keeps running while a window is minimized, in the background, or paused by
-Windows locking/sleeping. **Settings > Help > Quit NewsDesk** stops it explicitly
-for every window. Start it again from the shortcut.
+Windows locking/sleeping. Click the **power button (Quit NewsDesk)** beside Settings
+to stop it explicitly for every window. With the sidebar hidden, the power button
+appears at the top right. **Settings > Help > Quit NewsDesk** also works.
+Confirm **Quit NewsDesk**, then close the window. Start it again from the shortcut.
 
 **Without installing:** double-click **Start NewsDesk** in the unzipped folder instead.
 It runs the same app from wherever you unzipped it.
