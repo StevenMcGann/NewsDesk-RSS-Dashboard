@@ -38,7 +38,12 @@ function field(label, control, hint) {
 }
 
 function onEnter(input, fn) {
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fn(); } });
+  input.addEventListener('keydown', (e) => {
+    // Some IMEs report their confirming Enter with keyCode 229 instead of isComposing.
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    fn();
+  });
 }
 
 async function busy(btn, label, work) {
