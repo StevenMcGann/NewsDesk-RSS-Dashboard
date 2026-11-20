@@ -10,7 +10,7 @@
        "GHSA-mrv2-3pqr-j5jr": "Needs IN_PLACE with hooks; NewsDesk registers no hooks and doesn't use IN_PLACE."
      }},
     {"name": "@mozilla/readability", "ecosystem": "npm", "package": "@mozilla/readability", "version": "0.6.0"},
-    {"name": "Turndown", "ecosystem": "npm", "package": "turndown", "version": "7.2.4"},
+    {"name": "Turndown", "ecosystem": "npm", "package": "turndown", "version": "7.2.5"},
     {"name": "Lucide icons", "ecosystem": "npm", "package": "lucide-static", "version": "1.54.0"},
     {"name": "Python (embeddable, bundled in the zip)", "ecosystem": "python.org", "package": "python", "version": "3.14.10",
      "reviewed": {
