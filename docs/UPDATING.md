@@ -87,16 +87,20 @@ feed URLs and reading history; do not attach them to a public issue.
 - Run Windows unit tests on supported Python versions and CodeQL. Complete the
   portable build and the offline packaged acceptance test on Windows.
 - Build with `pwsh -File .\build_portable.ps1 -Test`. Verify both the ZIP and its
-  `.zip.sha256` sidecar. Upload **both** to the same stable GitHub release; confirm
-  the asset API supplies both SHA-256 digests before declaring in-app updates ready.
+  `.zip.sha256` sidecar. Upload **both** to the same GitHub release draft and
+  verify that the asset API supplies matching SHA-256 digests.
 - Review the release notes and current/new versions in the dialog, plain-text HTML
   escaping, progress, cancellation, and simultaneous starts from multiple windows.
-- Attend tests on **both the home PC and affected work PC before publishing**:
-  installed and portable copies, custom paths with spaces, connection choices,
-  retained data/shortcuts, foreground and locked/background windows, reconnection,
-  and a forced failed-startup/database-migration rollback.
-- Keep 1.1.0 unpublished until those checks pass. CI candidate artifacts are for
-  testing and are not releases.
+- Publish the stable release once the repository owner asks to publish, the
+  reviewed release PR has merged, and the checks above have passed. Verify the
+  public tag and both asset digests. Use CI candidate artifacts for testing.
+
+## Optional attended tests
+
+When practical, test on the affected Windows PC. Check installed and portable
+copies, custom paths with spaces, connection choices, retained data and shortcuts,
+foreground and locked or background windows, reconnection, and rollback after
+an intentional startup or database migration failure.
 
 ## Disposable acceptance test
 
@@ -120,5 +124,5 @@ This test creates fresh copies under a guarded temporary directory and substitut
 offline release/download fixtures only in those copies. It never updates your
 normal installation and makes no external network requests. Its fake next version
 is not a published release. Success reports are retained as `acceptance-result.json`
-with `--keep`; failed fixtures are always retained. Real GitHub/proxy download
-behavior still requires an attended candidate check against published assets.
+with `--keep`; failed fixtures are always retained. For attended download or
+proxy testing, use the assets from a published release.
